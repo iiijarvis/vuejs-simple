@@ -1,0 +1,28 @@
+{
+  "name": "vuejs-simple",
+  "version": "1.0.0",
+  "description": "vuejs 源码简易实现",
+  "main": "index.js",
+  "scripts": {
+    "serve": "cross-env ENV=development rollup -c -w",
+    "build:dev": "rollup -c"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/iiijarvis/vuejs-simple.git"
+  },
+  "author": "jarvis",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/iiijarvis/vuejs-simple/issues"
+  },
+  "homepage": "https://github.com/iiijarvis/vuejs-simple#readme",
+  "devDependencies": {
+    "@babel/core": "^7.9.6",
+    "@babel/preset-env": "^7.9.6",
+    "cross-env": "^7.0.2",
+    "rollup": "^2.9.1",
+    "rollup-plugin-babel": "^4.4.0",
+    "rollup-plugin-serve": "^1.0.1"
+  }
+}
