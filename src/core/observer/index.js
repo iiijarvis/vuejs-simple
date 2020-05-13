@@ -1,4 +1,5 @@
-import { isObject } from '../util/index'
+import { isObject, def } from '../util/index';
+import { arrayMethods } from './array';
 
 export function observe (data) {
   if (!isObject(data)) return;
@@ -7,8 +8,13 @@ export function observe (data) {
 
 export class Observer {
   constructor(data) {
+    // 给 data 挂载 Observer 实例
+    // 这里的作用是方便数组操作时调用 Observer 实例的 observeArray 方法
+    def(data, '__ob__', this, false);
+
     if (Array.isArray(data)) {
-      console.log('暂不支持数组');
+      this.observeArray(data);
+      data.__proto__ = arrayMethods;
     } else {
       this.walk(data);
     }
@@ -18,6 +24,11 @@ export class Observer {
       let value = data[key];
       defineReactive(data, key, value);
     });
+  }
+  observeArray (data) {
+    for (let i = 0; i < data.length; i++) {
+      observe(data[i]);
+    }
   }
 }
 
