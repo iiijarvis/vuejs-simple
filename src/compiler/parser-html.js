@@ -7,6 +7,18 @@ const attribute = /^\s*([^\s"'<>\/=]+)(?:\s*(=)\s*(?:"([^"]*)"+|'([^']*)'+|([^\s
 const doctype = /^<!DOCTYPE [^>]+>/i;
 
 let root = null;
+let currentParent = null;
+let stack = [];
+
+function createASTElement (tagName, attrs) {
+  return {
+    tag: tagName,
+    type: 1,
+    children: [],
+    attrs: attrs,
+    parent: null
+  }
+}
 
 export function parseHtml (html) {
   while (html) {
@@ -65,15 +77,31 @@ export function parseHtml (html) {
 
 // 处理开始标签
 function start (tagName, attrs) {
-
+  let element = createASTElement(tagName, attrs);
+  if (!root) {
+    root = element;
+  }
+  currentParent = element;
+  stack.push(element);
 }
 
 // 处理文本
 function chars (text) {
-
+  text = text.replace(/\s/g, '');
+  if (text) {
+    currentParent.children.push({
+      text: text,
+      type: 3
+    });
+  }
 }
 
 // 处理结束标签
 function end (tagName) {
-
+  let element = stack.pop();
+  currentParent = stack[stack.length - 1];
+  if (currentParent) {
+    element.parent = currentParent;
+    currentParent.children.push(element);
+  }
 }
