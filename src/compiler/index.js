@@ -1,5 +1,7 @@
-import { parseHtml } from './parser-html'
+import { parseHtml } from './parser-html';
+import { generate } from './codegen/index';
 
 export function compileToFunctions (template) {
-  parseHtml(template);
+  let root = parseHtml(template);
+  let code = generate(root);
 }
