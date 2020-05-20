@@ -9,9 +9,9 @@
 </head>
 
 <body>
-  <div style="height: 20px;color: #cccccc;width: 100px;" id="app">
+  <div class="a" style="height: 20px;color: #cccccc;width: 100px;" id="app">
     <p>test{{name}}a</p>
-    <div>test</div>
+    <div @click="add">{{number}}</div>
   </div>
   <script>
 
@@ -19,6 +19,7 @@
       el: '#app',
       data() {
         return {
+          number: 1,
           name: 'zhangsan',
           user: {
             age: 20
@@ -26,6 +27,11 @@
           list: [{ name: 1 }, { name: 2 }]
         }
       },
+      methods: {
+        add() {
+          this.number = this.number + 1;
+        }
+      }
     });
     console.log(vm._data.list.push({ name: 3 }));
   </script>

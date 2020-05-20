@@ -3,19 +3,20 @@ export function createElement (tag, data = {}, ...children) {
   if (key) {
     delete data.key;
   }
-  return vnode(tag, data, key, children, undefined);
+  return VNode(tag, data, key, children, undefined);
 }
 
 export function createTextNode (text) {
-  return vnode(undefined, undefined, undefined, undefined, text);
+  return VNode(undefined, undefined, undefined, undefined, text);
 }
 
-function vnode (tag, data, key, children, text) {
+export function VNode (tag, data, key, children, text, elm) {
   return {
     tag: tag,
     data: data,
     key: key,
     children: children,
-    text: text
+    text: text,
+    elm: elm
   };
 }

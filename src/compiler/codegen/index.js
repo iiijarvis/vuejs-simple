@@ -3,11 +3,30 @@ let defaultTagRE = /\{\{((?:.|\r?\n)+?)\}\}/g;
 export function generate (ast) {
   let children = genChildren(ast);
   let code = `_c("${ast.tag}",
-  ${ast.attrs.length ? genProps(ast.attrs) : 'undefined'}
+  ${ast.attrs.length ? genData(ast.attrs) : 'undefined'}
   ${children ? `,${children}` : ''}
   )`;
 
   return code;
+}
+
+function genData (attrs) {
+  let data = '{';
+  data += "attrs:" + genProps(attrs.filter(item => !item.name.startsWith('@'))) + ",";
+  let events = attrs.filter(item => item.name.startsWith('@'));
+  if (events && events.length) {
+    data += "on:" + getHandlers(events);
+  }
+  data += '}';
+  return data;
+}
+
+function getHandlers (events) {
+  let data = '';
+  events.forEach(item => {
+    data += `"${item.name.replace('@', '')}":"${item.value}",`;
+  })
+  return `{${data.slice(0, -1)}}`;
 }
 
 function genProps (attrs) {

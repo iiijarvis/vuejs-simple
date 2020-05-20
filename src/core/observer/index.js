@@ -1,5 +1,6 @@
 import { isObject, def } from '../util/index';
 import { arrayMethods } from './array';
+import Dep from './dep';
 
 export function observe (data) {
   if (!isObject(data)) return;
@@ -33,16 +34,21 @@ export class Observer {
 }
 
 function defineReactive (data, key, value) {
+  const dep = new Dep();
   observe(value); // 递归调用
   Object.defineProperty(data, key, {
     enumerable: true,
     configurable: true,
     get () {
+      if (Dep.target) {
+        dep.depend();
+      }
       return value;
     },
     set (newVal) {
       if (newVal === value) return;
       value = newVal;
+      dep.notify();
     }
   })
 }

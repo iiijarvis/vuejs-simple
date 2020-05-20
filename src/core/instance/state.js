@@ -1,4 +1,5 @@
 import { observe } from '../observer/index'
+import { bind } from '../util/index'
 
 function initState (vm) {
   const options = vm.$options;
@@ -6,7 +7,7 @@ function initState (vm) {
     initProps();
   }
   if (options.methods) {
-    initMethods();
+    initMethods(vm);
   }
   if (options.data) {
     initData(vm);
@@ -21,7 +22,14 @@ function initState (vm) {
 
 function initProps () { }
 
-function initMethods () { }
+function initMethods (vm) {
+  const methods = vm.$options.methods;
+  if (methods) {
+    for (let key in methods) {
+      vm[key] = bind(methods[key], vm);
+    }
+  }
+}
 
 function initData (vm) {
   let data = vm.$options.data;

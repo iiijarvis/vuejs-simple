@@ -8,7 +8,8 @@ export function mountComponent (vm, el) {
   let updateComponent = () => {
     // _render 创建虚拟dom
     // _update 解析虚拟dom并创建真实dom
-    vm._update(vm._render());
+    let vnode = vm._render();
+    vm._update(vnode);
   }
   new Watcher(vm, updateComponent, () => { }, true);
 }
@@ -16,6 +17,12 @@ export function mountComponent (vm, el) {
 export function lifecycleMixin (Vue) {
   Vue.prototype._update = function (vnode) {
     const vm = this;
-    vm.$el = patch(vm.$el, vnode);
+    let prevVnode = vm._vnode;
+    vm._vnode = vnode;
+    if (!prevVnode) {
+      vm.$el = vm.__patch__(vm.$el, vnode);
+    } else {
+      vm.$el = vm.__patch__(prevVnode, vnode);
+    }
   }
 }
