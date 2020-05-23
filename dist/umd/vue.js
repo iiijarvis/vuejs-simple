@@ -108,6 +108,12 @@
       configurable: true
     });
   }
+  function bind(fn, ctx) {
+    return function (a) {
+      var l = arguments.length;
+      return l ? l > 1 ? fn.apply(ctx, arguments) : fn.call(ctx, a) : fn.call(ctx);
+    };
+  }
 
   var oldArrayMethods = Array.prototype;
   var arrayMethods = Object.create(oldArrayMethods);
@@ -141,6 +147,48 @@
       return result;
     };
   });
+
+  var uid = 0;
+
+  var Dep = /*#__PURE__*/function () {
+    function Dep() {
+      _classCallCheck(this, Dep);
+
+      this.id = uid++;
+      this.subs = [];
+    }
+
+    _createClass(Dep, [{
+      key: "addSub",
+      value: function addSub(sub) {
+        this.subs.push(sub);
+      }
+    }, {
+      key: "removeSub",
+      value: function removeSub(sub) {
+        remove(this.subs, sub);
+      }
+    }, {
+      key: "depend",
+      value: function depend() {
+        if (Dep.target) {
+          Dep.target.addDep(this);
+        }
+      }
+    }, {
+      key: "notify",
+      value: function notify() {
+        var subs = this.subs.slice();
+
+        for (var i = 0; i < subs.length; i++) {
+          subs[i].update();
+        }
+      }
+    }]);
+
+    return Dep;
+  }();
+  Dep.target = null;
 
   function observe(data) {
     if (!isObject(data)) return;
@@ -183,17 +231,23 @@
   }();
 
   function defineReactive(data, key, value) {
+    var dep = new Dep();
     observe(value); // 递归调用
 
     Object.defineProperty(data, key, {
       enumerable: true,
       configurable: true,
       get: function get() {
+        if (Dep.target) {
+          dep.depend();
+        }
+
         return value;
       },
       set: function set(newVal) {
         if (newVal === value) return;
         value = newVal;
+        dep.notify();
       }
     });
   }
@@ -203,7 +257,9 @@
 
     if (options.props) ;
 
-    if (options.methods) ;
+    if (options.methods) {
+      initMethods(vm);
+    }
 
     if (options.data) {
       initData(vm);
@@ -212,6 +268,16 @@
     if (options.computed) ;
 
     if (options.watch) ;
+  }
+
+  function initMethods(vm) {
+    var methods = vm.$options.methods;
+
+    if (methods) {
+      for (var key in methods) {
+        vm[key] = bind(methods[key], vm);
+      }
+    }
   }
 
   function initData(vm) {
@@ -236,12 +302,17 @@
     });
   }
 
+  function genAssignmentCode(value, assignment) {
+    return value + "=" + assignment;
+  }
+
   var ncname = "[a-zA-Z_][\\-\\.0-9_a-zA-Z]*";
   var qnameCapture = "((?:".concat(ncname, "\\:)?").concat(ncname, ")");
   var startTagOpen = new RegExp("^<".concat(qnameCapture));
   var startTagClose = /^\s*(\/?)>/;
   var endTag = new RegExp("^<\\/".concat(qnameCapture, "[^>]*>"));
   var attribute = /^\s*([^\s"'<>\/=]+)(?:\s*(=)\s*(?:"([^"]*)"+|'([^']*)'+|([^\s"'=<>`]+)))?/;
+  var dirRE = /^v-|^@/;
   var root = null;
   var currentParent = null;
   var stack = [];
@@ -251,9 +322,20 @@
       tag: tagName,
       type: 1,
       children: [],
-      attrs: attrs,
+      attrsList: attrs,
+      attrsMap: makeAttrsMap(attrs),
       parent: null
     };
+  }
+
+  function makeAttrsMap(attrs) {
+    var map = {};
+
+    for (var i = 0; i < attrs.length; i++) {
+      map[attrs[i].name] = attrs[i].value;
+    }
+
+    return map;
   }
 
   function parseHtml(html) {
@@ -321,10 +403,49 @@
     }
 
     return root;
+  }
+
+  function processAttrs(el) {
+    var list = el.attrsList;
+    el.attrs = el.attrs ? el.attrs : [];
+    el.directives = el.directives ? el.directives : [];
+    el.props = el.props ? el.props : [];
+    el.events = el.events ? el.events : {};
+
+    for (var i = 0; i < list.length; i++) {
+      var name = list[i].name;
+      var value = list[i].value;
+
+      if (dirRE.test(name)) {
+        if (/v-model/.test(name) && el.tag === 'input') {
+          el.directives.push({
+            name: 'model',
+            rawName: 'v-model',
+            value: value
+          });
+          el.events['input'] = genAssignmentCode(value, '$event.target.value');
+          el.props.push({
+            name: 'value',
+            value: value
+          });
+        }
+
+        if (/@click/.test(name)) {
+          el.events['click'] = value;
+        }
+      } else {
+        el.attrs.push({
+          name: name,
+          value: value
+        });
+      }
+    }
   } // 处理开始标签
+
 
   function start(tagName, attrs) {
     var element = createASTElement(tagName, attrs);
+    processAttrs(element);
 
     if (!root) {
       root = element;
@@ -332,6 +453,10 @@
 
     currentParent = element;
     stack.push(element);
+
+    if (tagName === 'input') {
+      end();
+    }
   } // 处理文本
 
 
@@ -358,10 +483,67 @@
   }
 
   var defaultTagRE = /\{\{((?:.|\r?\n)+?)\}\}/g;
+  var fnExpRE = /^([\w$_]+|\([^)]*?\))\s*=>|^function(?:\s+[\w$]+)?\s*\(/;
+  var simplePathRE = /^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*|\['[^']*?']|\["[^"]*?"]|\[\d+]|\[[A-Za-z_$][\w$]*])*$/;
   function generate(ast) {
     var children = genChildren(ast);
-    var code = "_c(\"".concat(ast.tag, "\",\n  ").concat(ast.attrs.length ? genProps(ast.attrs) : 'undefined', "\n  ").concat(children ? ",".concat(children) : '', "\n  )");
+    var code = "_c(\"".concat(ast.tag, "\",\n  ").concat(ast.attrsList.length ? genData(ast) : 'undefined', "\n  ").concat(children ? ",".concat(children) : '', "\n  )");
     return code;
+  }
+
+  function genData(ast) {
+    var data = '{';
+
+    if (ast.attrs) {
+      data += "attrs:" + genProps(ast.attrs) + ",";
+    }
+
+    if (ast.events) {
+      data += "on:" + genHandlers(ast.events) + ",";
+    }
+
+    if (ast.props) {
+      data += "domProps:" + genDomProps(ast.props) + ",";
+    }
+
+    data = data.replace(/,$/, ''); // data += "attrs:" + genProps(attrs.filter(item => !item.name.startsWith('@'))) + ",";
+    // let events = attrs.filter(item => item.name.startsWith('@'));
+    // if (events && events.length) {
+    //   data += "on:" + genHandlers(events);
+    // }
+
+    data += '}';
+    return data;
+  }
+
+  function genHandlers(events) {
+    var data = '';
+    Object.keys(events).forEach(function (key) {
+      var isMethodPath = simplePathRE.test(events[key]);
+      var isFunctionExpression = fnExpRE.test(events[key]); // let isFunctionInvocation = simplePathRE.test(handler.value.replace(fnInvokeRE, ''));
+
+      if (isMethodPath || isFunctionExpression) {
+        data += "\"".concat(key, "\":").concat(events[key], ",");
+      } else {
+        data += "\"".concat(key, "\":function ($event){ ").concat(events[key], " },");
+      }
+    });
+    data = data.replace(/,$/, '');
+    return "{".concat(data, "}");
+  }
+
+  function genDomProps(props) {
+    var data = '{';
+
+    for (var i = 0; i < props.length; i++) {
+      data += "\"".concat(props[i].name, "\":").concat(props[i].value, ","); // if (ast.elm) {
+      //   ast.elm[ast.props[i].name] = ast.props[i].value;
+      // }
+    }
+
+    data = data.replace(/,$/, '');
+    data += '}';
+    return data;
   }
 
   function genProps(attrs) {
@@ -434,6 +616,361 @@
   function compileToFunctions(template) {
     var root = parseHtml(template);
     var code = generate(root);
+    var renderFn = new Function("with(this){return ".concat(code, "}"));
+    return renderFn;
+  }
+
+  var Watcher = /*#__PURE__*/function () {
+    function Watcher(vm, exprOrFn, callback, options) {
+      _classCallCheck(this, Watcher);
+
+      this.vm = vm;
+      this.callback = callback;
+      this.options = options;
+      this.depIds = new Set();
+      this.getter = exprOrFn;
+      this.get();
+    }
+
+    _createClass(Watcher, [{
+      key: "get",
+      value: function get() {
+        Dep.target = this;
+        this.getter();
+        Dep.target = null;
+      }
+    }, {
+      key: "addDep",
+      value: function addDep(dep) {
+        if (!this.depIds.has(dep.id)) {
+          dep.addSub(this);
+          this.depIds.add(dep.id);
+        }
+      }
+    }, {
+      key: "update",
+      value: function update() {
+        this.getter.call(vm); // this.vm._update();
+      }
+    }]);
+
+    return Watcher;
+  }();
+
+  function createElement(tag) {
+    var data = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
+    var key = data.key;
+
+    if (key) {
+      delete data.key;
+    }
+
+    for (var _len = arguments.length, children = new Array(_len > 2 ? _len - 2 : 0), _key = 2; _key < _len; _key++) {
+      children[_key - 2] = arguments[_key];
+    }
+
+    return VNode(tag, data, key, children, undefined);
+  }
+  function createTextNode(text) {
+    return VNode(undefined, undefined, undefined, undefined, text);
+  }
+  function VNode(tag, data, key, children, text, elm) {
+    return {
+      tag: tag,
+      data: data,
+      key: key,
+      children: children,
+      text: text,
+      elm: elm
+    };
+  }
+
+  function createPatchFunction(oldVnode, vnode) {
+    var vm = this;
+    return patch(oldVnode, vnode);
+
+    function patch(oldVnode, vnode) {
+      var isRealElement = oldVnode.nodeType; // 虚拟dom没有nodeType属性，真实dom才有
+      // let parent = vm.$el.parentNode;
+      // const oldElm = oldVnode;
+      // const parentElm = oldElm.parentNode;
+      // let el = createElm(vnode);
+      // parent.appendChild(el);
+      // if (isRealElement) {
+      //   parentElm.removeChild(oldElm);
+      // }
+
+      if (!isRealElement && sameVnode(oldVnode, vnode)) {
+        patchVnode(oldVnode, vnode);
+      } else {
+        if (isRealElement) {
+          oldVnode = emptyNodeAt(oldVnode);
+        }
+
+        var elm = oldVnode.elm;
+        var parent = elm.parentNode;
+        createElm(vnode);
+        parent.insertBefore(vnode.elm, elm);
+        parent.removeChild(elm);
+      }
+
+      return vnode.elm;
+    }
+
+    function createElm(vnode) {
+      var tag = vnode.tag,
+          data = vnode.data,
+          key = vnode.key,
+          children = vnode.children,
+          text = vnode.text;
+
+      if (typeof tag === 'string') {
+        vnode.elm = document.createElement(tag);
+        children.forEach(function (child) {
+          return vnode.elm.appendChild(createElm(child));
+        });
+        updateProperties(vnode);
+      } else {
+        vnode.elm = document.createTextNode(text);
+      }
+
+      return vnode.elm;
+    }
+
+    function patchVnode(oldVnode, vnode) {
+      if (oldVnode === vnode) return;
+      var elm = vnode.elm = oldVnode.elm;
+      var oldCh = oldVnode.children;
+      var ch = vnode.children;
+
+      if (!vnode.text) {
+        // 判断是否为文本
+        if (oldCh && ch) {
+          // 是否有子节点
+          updateChildren(elm, oldCh, ch);
+        } else if (ch) {
+          if (oldCh.text) {
+            elm.textContent = '';
+          }
+
+          addVnodes(elm, null, ch, 0, ch.length - 1);
+        } else if (oldCh) {
+          removeVnodes(elm, oldCh, 0, oldCh.length - 1);
+        } else {
+          elm.textContent = '';
+        }
+
+        updateDOMProps(oldVnode, vnode);
+      } else {
+        if (oldCh) {
+          removeVnodes(elm, oldCh, 0, oldCh.length - 1);
+        }
+
+        elm.textContent = vnode.text;
+      }
+    }
+
+    function emptyNodeAt(elm) {
+      return new VNode(elm.tagName.toLowerCase(), {}, [], undefined, undefined, elm);
+    }
+
+    function sameVnode(oldVnode, vnode) {
+      return oldVnode.key === vnode.key && oldVnode.tag === vnode.tag;
+    }
+
+    function removeVnodes(parent, vnodes, startIdx, endIdx) {
+      for (var i = startIdx; i <= endIdx; i++) {
+        var _vnode = vnodes[i];
+        var elm = _vnode.elm;
+        parent.removeChild(elm);
+      }
+    }
+
+    function addVnodes(parent, before, vnodes, startIdx, endIdx) {
+      for (; startIdx <= endIdx; ++startIdx) {
+        var _vnode2 = vnodes[startIdx];
+
+        if (_vnode2) {
+          parent.insertBefore(createElm(_vnode2), before);
+        }
+      }
+    }
+
+    function updateChildren(parentElm, oldCh, newCh) {
+      if (oldCh === newCh) return;
+      var oldStartIdx = 0,
+          oldEndIdx = oldCh.length - 1,
+          oldStartVnode = oldCh[0],
+          oldEndVnode = oldCh[oldEndIdx],
+          newStartIdx = 0,
+          newEndIdx = newCh.length - 1,
+          newStartVnode = newCh[0],
+          newEndVnode = newCh[newEndIdx],
+          oldKeyToIdx,
+          idxInold;
+
+      while (oldStartIdx <= oldEndIdx && newStartIdx <= newEndIdx) {
+        if (oldStartVnode == null) {
+          oldStartVnode = oldCh[++oldStartIdx];
+        } else if (oldEndVnode == null) {
+          oldEndVnode = oldCh[--oldEndIdx];
+        } else if (newStartVnode == null) {
+          newStartVnode = newCh[++newStartIdx];
+        } else if (newEndVnode == null) {
+          newEndVnode = newCh[--newEndIdx];
+        } else if (sameVnode(oldStartVnode, newStartVnode)) {
+          patchVnode(oldStartVnode, newStartVnode);
+          oldStartVnode = oldCh[++oldStartIdx];
+          newStartVnode = newCh[++newStartIdx];
+        } else if (sameVnode(oldEndVnode, newEndVnode)) {
+          patchVnode(oldEndVnode, newEndVnode);
+          oldEndVnode = oldCh[--oldEndIdx];
+          newEndVnode = newCh[--newEndIdx];
+        } else if (sameVnode(oldStartVnode, newEndVnode)) {
+          patchVnode(oldStartVnode, newEndVnode);
+          parentElm.insertBefore(oldStartVnode.elm, oldEndVnode.elm.nextSibling);
+          oldStartVnode = oldCh[++oldStartIdx];
+          newEndVnode = newCh[--newEndIdx];
+        } else if (sameVnode(oldEndVnode, newStartVnode)) {
+          patchVnode(oldEndVnode, newStartVnode);
+          parentElm.insertBefore(oldEndVnode.elm, oldStartVnode.elm);
+          oldEndVnode = oldCh[--oldEndIdx];
+          newStartVnode = newCh[++newStartIdx];
+        } else {
+          if (oldKeyToIdx === undefined) {
+            oldKeyToIdx = createKeyToOldIdx(oldCh, oldStartIdx, oldEndIdx);
+          }
+
+          idxInold = oldKeyToIdx[newStartVnode.key];
+
+          if (idxInold === undefined) {
+            parentElm.insertBefore(createElm(newStartVnode), oldStartVnode.elm);
+          } else {
+            var moveVnode = oldCh[idxInold];
+
+            if (!sameVnode(moveVnode, newStartVnode)) {
+              parentElm.insertBefore(createElm(newStartVnode), oldStartVnode.elm);
+            } else {
+              patchVnode(moveVnode, newStartVnode);
+              parentElm.insertBefore(moveVnode.elm, oldStartVnode.elm);
+              oldCh[idxInold] = null;
+            }
+          }
+
+          newStartVnode = newCh[++newStartIdx];
+        }
+      }
+
+      if (oldStartIdx <= oldEndIdx || newStartIdx <= newEndIdx) {
+        if (oldStartIdx > oldEndIdx) {
+          // 插入剩余新增的子节点
+          var before = newCh[newEndIdx + 1] ? newCh[newEndIdx + 1].elm : null;
+          addVnodes(parentElm, before, newCh, newStartIdx, newEndIdx);
+        } else {
+          // 删除废弃的子节点
+          removeVnodes(parentElm, oldCh, oldStartIdx, oldEndIdx);
+        }
+      }
+    }
+
+    function createKeyToOldIdx(children, startIdx, endIdx) {
+      var map = {};
+
+      for (var i = startIdx; i <= endIdx; i++) {
+        var key = children[i].key;
+
+        if (key) {
+          map[key] = i;
+        }
+      }
+
+      return map;
+    }
+
+    function updateProperties(vnode) {
+      var props = vnode.data;
+      var elm = vnode.elm;
+
+      if (props) {
+        if (props.attrs) {
+          for (var attr in props.attrs) {
+            if (attr === 'style') {
+              for (var styleName in props.attrs.style) {
+                elm.style[styleName] = props.attrs.style[styleName];
+              }
+            } else if (attr === 'class') {
+              elm.className = props.attrs[attr];
+            } else {
+              elm.setAttribute(attr, props.attrs[attr]);
+            }
+          }
+        }
+
+        if (props.on) {
+          for (var event in props.on) {
+            elm.addEventListener(event, props.on[event].bind(vm));
+          }
+        }
+
+        if (props.domProps) {
+          for (var prop in props.domProps) {
+            // elm.prop=props.domProps[prop]
+            elm.setAttribute(prop, props.domProps[prop]);
+          }
+        }
+      }
+    }
+
+    function updateDOMProps(oldVnode, vnode) {
+      if (!oldVnode.data.domProps && !vnode.data.domProps) return;
+      var elm = vnode.elm;
+      var oldProps = oldVnode.data.domProps || {};
+      var props = vnode.data.domProps || {}; // 清空不在新 VNode 里在老 VNode 的 domProps
+
+      for (var key in oldProps) {
+        if (!props[key]) {
+          elm[key] = '';
+        }
+      }
+
+      for (var _key in props) {
+        var cur = props[_key];
+
+        if (_key === 'value') {
+          elm[_key] = cur;
+        } else {
+          elm[_key] = cur;
+        }
+      }
+    }
+  }
+
+  function mountComponent(vm, el) {
+    // const option=vm.$options;
+    vm.$el = el;
+
+    var updateComponent = function updateComponent() {
+      // _render 创建虚拟dom
+      // _update 解析虚拟dom并创建真实dom
+      var vnode = vm._render();
+
+      vm._update(vnode);
+    };
+
+    new Watcher(vm, updateComponent, function () {}, true);
+  }
+  function lifecycleMixin(Vue) {
+    Vue.prototype._update = function (vnode) {
+      var vm = this;
+      var prevVnode = vm._vnode;
+      vm._vnode = vnode;
+
+      if (!prevVnode) {
+        vm.$el = vm.__patch__(vm.$el, vnode);
+      } else {
+        vm.$el = vm.__patch__(prevVnode, vnode);
+      }
+    };
   }
 
   function initMixin(Vue) {
@@ -447,10 +984,12 @@
       }
     };
 
+    Vue.prototype.__patch__ = createPatchFunction;
+
     Vue.prototype.$mount = function (el) {
       var vm = this;
       var options = vm.$options;
-      el = document.querySelector(el);
+      el = document.querySelector(el); // options.el = el;
 
       if (!options.render) {
         var template = options.template;
@@ -461,6 +1000,38 @@
 
         options.render = compileToFunctions(template);
       }
+
+      mountComponent(vm, el);
+    };
+  }
+
+  function renderMixin(Vue) {
+    // _c 创建元素的虚拟节点
+    // _v 创建文本的虚拟节点
+    // _s 文本变量
+    Vue.prototype._c = function (tag) {
+      var data = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
+
+      for (var _len = arguments.length, children = new Array(_len > 2 ? _len - 2 : 0), _key = 2; _key < _len; _key++) {
+        children[_key - 2] = arguments[_key];
+      }
+
+      return createElement.apply(void 0, [tag, data].concat(children));
+    };
+
+    Vue.prototype._v = function (text) {
+      return createTextNode(text);
+    };
+
+    Vue.prototype._s = function (val) {
+      return val == null ? '' : _typeof(val) === "object" ? JSON.stringify(val) : val;
+    };
+
+    Vue.prototype._render = function () {
+      var vm = this;
+      var render = vm.$options.render;
+      var vnode = render.call(vm);
+      return vnode;
     };
   }
 
@@ -468,6 +1039,8 @@
     this._init(options);
   }
   initMixin(Vue);
+  renderMixin(Vue);
+  lifecycleMixin(Vue);
 
   return Vue;
 

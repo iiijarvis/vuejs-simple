@@ -5,6 +5,9 @@ const startTagClose = /^\s*(\/?)>/;
 const endTag = new RegExp(`^<\\/${qnameCapture}[^>]*>`);
 const attribute = /^\s*([^\s"'<>\/=]+)(?:\s*(=)\s*(?:"([^"]*)"+|'([^']*)'+|([^\s"'=<>`]+)))?/;
 const doctype = /^<!DOCTYPE [^>]+>/i;
+const dirRE = /^v-|^@/;
+
+import { genAssignmentCode } from './directives/model.js';
 
 let root = null;
 let currentParent = null;
@@ -15,9 +18,18 @@ function createASTElement (tagName, attrs) {
     tag: tagName,
     type: 1,
     children: [],
-    attrs: attrs,
+    attrsList: attrs,
+    attrsMap: makeAttrsMap(attrs),
     parent: null
   }
+}
+
+function makeAttrsMap (attrs) {
+  let map = {};
+  for (let i = 0; i < attrs.length; i++) {
+    map[attrs[i].name] = attrs[i].value;
+  }
+  return map;
 }
 
 export function parseHtml (html) {
@@ -75,14 +87,43 @@ export function parseHtml (html) {
   return root;
 }
 
+function processAttrs (el) {
+  let list = el.attrsList;
+  el.attrs = el.attrs ? el.attrs : [];
+  el.directives = el.directives ? el.directives : [];
+  el.props = el.props ? el.props : [];
+  el.events = el.events ? el.events : {};
+
+  for (let i = 0; i < list.length; i++) {
+    let name = list[i].name;
+    let value = list[i].value;
+    if (dirRE.test(name)) {
+      if (/v-model/.test(name) && el.tag === 'input') {
+        el.directives.push({ name: 'model', rawName: 'v-model', value: value });
+        el.events['input'] = genAssignmentCode(value, '$event.target.value');
+        el.props.push({ name: 'value', value: value });
+      }
+      if (/@click/.test(name)) {
+        el.events['click'] = value;
+      }
+    } else {
+      el.attrs.push({ name: name, value: value });
+    }
+  }
+}
+
 // 处理开始标签
 function start (tagName, attrs) {
   let element = createASTElement(tagName, attrs);
+  processAttrs(element);
   if (!root) {
     root = element;
   }
   currentParent = element;
   stack.push(element);
+  if (tagName === 'input') {
+    end(tagName);
+  }
 }
 
 // 处理文本

@@ -10,8 +10,11 @@
 
 <body>
   <div class="a" style="height: 20px;color: #cccccc;width: 100px;" id="app">
-    <p>test{{name}}a</p>
-    <div @click="add">{{number}}</div>
+    <p>hello {{name}}</p>
+    <p>hello {{name}}</p>
+    <input v-model="name" />
+    <input v-model="name" />
+    <button @click="add">{{number}}</button>
   </div>
   <script>
 
@@ -20,7 +23,7 @@
       data() {
         return {
           number: 1,
-          name: 'zhangsan',
+          name: 'world',
           user: {
             age: 20
           },

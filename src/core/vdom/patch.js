@@ -65,6 +65,7 @@ export function createPatchFunction (oldVnode, vnode) {
       } else {
         elm.textContent = '';
       }
+      updateDOMProps(oldVnode, vnode);
     } else {
       if (oldCh) {
         removeVnodes(elm, oldCh, 0, oldCh.length - 1);
@@ -201,8 +202,38 @@ export function createPatchFunction (oldVnode, vnode) {
       }
       if (props.on) {
         for (let event in props.on) {
-          elm.addEventListener(event, vm[props.on[event]].bind(vm));
+          elm.addEventListener(event, props.on[event].bind(vm));
         }
+      }
+      if (props.domProps) {
+        for (let prop in props.domProps) {
+          // elm.prop=props.domProps[prop]
+          elm.setAttribute(prop, props.domProps[prop]);
+        }
+      }
+    }
+  }
+
+  function updateDOMProps (oldVnode, vnode) {
+    if (!oldVnode.data.domProps && !vnode.data.domProps)
+      return;
+    const elm = vnode.elm;
+    let oldProps = oldVnode.data.domProps || {};
+    let props = vnode.data.domProps || {};
+
+    // 清空不在新 VNode 里在老 VNode 的 domProps
+    for (let key in oldProps) {
+      if (!props[key]) {
+        elm[key] = '';
+      }
+    }
+
+    for (let key in props) {
+      let cur = props[key];
+      if (key === 'value') {
+        elm[key] = cur;
+      } else {
+        elm[key] = cur;
       }
     }
   }
