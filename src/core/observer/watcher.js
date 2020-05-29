@@ -1,4 +1,8 @@
-import Dep from './dep';
+import Dep, { pushTarget, popTarget } from './dep';
+import { parsePath } from '../util/index'
+import { queueWatcher } from './scheduler'
+
+let uid = 0
 
 class Watcher {
   constructor(vm, exprOrFn, callback, options) {
@@ -6,14 +10,27 @@ class Watcher {
     this.callback = callback;
     this.options = options;
     this.depIds = new Set();
+    this.id = ++uid;
 
-    this.getter = exprOrFn;
-    this.get();
+    if (typeof exprOrFn === 'function') {
+      this.getter = exprOrFn
+    } else {
+      this.getter = parsePath(exprOrFn)
+    }
+
+    this.value = this.get();
   }
   get () {
-    Dep.target = this;
-    this.getter();
-    Dep.target = null;
+    pushTarget(this);
+    let value = '';
+    try {
+      value = this.getter.call(this.vm, this.vm);
+    } catch (e) {
+
+    } finally {
+      popTarget();
+    }
+    return value;
   }
 
   addDep (dep) {
@@ -23,9 +40,17 @@ class Watcher {
     }
   }
 
+  run () {
+    let value = this.getter.call(this.vm, this.vm);
+    if (value !== this.value) {
+      let oldValue = this.value;
+      this.value = value;
+      this.callback.call(this.vm, this.value, oldValue);
+    }
+  }
+
   update () {
-    this.getter.call(vm);
-    // this.vm._update();
+    queueWatcher(this);
   }
 }
 

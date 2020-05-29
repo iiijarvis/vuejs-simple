@@ -114,6 +114,23 @@
       return l ? l > 1 ? fn.apply(ctx, arguments) : fn.call(ctx, a) : fn.call(ctx);
     };
   }
+  var unicodeRegExp = /a-zA-Z\u00B7\u00C0-\u00D6\u00D8-\u00F6\u00F8-\u037D\u037F-\u1FFF\u200C-\u200D\u203F-\u2040\u2070-\u218F\u2C00-\u2FEF\u3001-\uD7FF\uF900-\uFDCF\uFDF0-\uFFFD/;
+  var bailRE = new RegExp("[^".concat(unicodeRegExp.source, ".$_\\d]"));
+  function parsePath(path) {
+    if (bailRE.test(path)) {
+      return;
+    }
+
+    var segments = path.split('.');
+    return function (obj) {
+      for (var i = 0; i < segments.length; i++) {
+        if (!obj) return;
+        obj = obj[segments[i]];
+      }
+
+      return obj;
+    };
+  }
 
   var oldArrayMethods = Array.prototype;
   var arrayMethods = Object.create(oldArrayMethods);
@@ -189,6 +206,15 @@
     return Dep;
   }();
   Dep.target = null;
+  var targetStack = [];
+  function pushTarget(target) {
+    targetStack.push(target);
+    Dep.target = target;
+  }
+  function popTarget() {
+    targetStack.pop();
+    Dep.target = targetStack[targetStack.length - 1];
+  }
 
   function observe(data) {
     if (!isObject(data)) return;
@@ -620,6 +646,56 @@
     return renderFn;
   }
 
+  var has = {};
+  var flushing = false;
+  var queue = [];
+  var index = 0;
+  var waiting = false;
+  function queueWatcher(watcher) {
+    var id = watcher.id;
+
+    if (!has[id]) {
+      has[id] = true;
+
+      if (!flushing) {
+        queue.push(watcher);
+      } else {
+        // 执行 flushSchedulerQueue 过程中插入 watcher
+        var i = queue.length - 1; // 按从小到大排列 插入id
+
+        while (i > index && queue[index].id > id) {
+          i--;
+        }
+
+        queue.splice(i + 1, 0, watcher);
+      }
+
+      if (!waiting) {
+        waiting = true;
+        setTimeout(flushSchedulerQueue, 0);
+      }
+    }
+  }
+
+  function flushSchedulerQueue() {
+    flushing = true;
+    queue.sort(function (a, b) {
+      return a.id - b.id;
+    });
+
+    for (index = 0; index < queue.length; index++) {
+      var watcher = queue[index];
+      has[watcher.id] = null;
+      watcher.run();
+    }
+
+    index = queue.length = 0;
+    has = {};
+    flushing = waiting = false;
+  }
+
+  var uid$1 = 0;
+
   var Watcher = /*#__PURE__*/function () {
     function Watcher(vm, exprOrFn, callback, options) {
       _classCallCheck(this, Watcher);
@@ -628,16 +704,30 @@
       this.callback = callback;
       this.options = options;
       this.depIds = new Set();
-      this.getter = exprOrFn;
-      this.get();
+      this.id = ++uid$1;
+
+      if (typeof exprOrFn === 'function') {
+        this.getter = exprOrFn;
+      } else {
+        this.getter = parsePath(exprOrFn);
+      }
+
+      this.value = this.get();
     }
 
     _createClass(Watcher, [{
       key: "get",
       value: function get() {
-        Dep.target = this;
-        this.getter();
-        Dep.target = null;
+        pushTarget(this);
+        var value = '';
+
+        try {
+          value = this.getter.call(this.vm, this.vm);
+        } catch (e) {} finally {
+          popTarget();
+        }
+
+        return value;
       }
     }, {
       key: "addDep",
@@ -648,9 +738,20 @@
         }
       }
     }, {
+      key: "run",
+      value: function run() {
+        var value = this.getter.call(this.vm, this.vm);
+
+        if (value !== this.value) {
+          var oldValue = this.value;
+          this.value = value;
+          this.callback.call(this.vm, this.value, oldValue);
+        }
+      }
+    }, {
       key: "update",
       value: function update() {
-        this.getter.call(vm); // this.vm._update();
+        queueWatcher(this);
       }
     }]);
 
