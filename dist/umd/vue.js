@@ -374,7 +374,7 @@
     }, {
       key: "run",
       value: function run() {
-        var value = this.getter.call(this.vm, this.vm);
+        var value = this.get();
 
         if (value !== this.value) {
           var oldValue = this.value;
@@ -401,6 +401,13 @@
     return Watcher;
   }();
 
+  var sharedPropertyDefinition = {
+    enumerable: true,
+    configurable: true,
+    get: function get() {},
+    set: function set() {}
+  };
+
   function initState(vm) {
     var options = vm.$options;
 
@@ -414,9 +421,13 @@
       initData(vm);
     }
 
-    if (options.computed) ;
+    if (options.computed) {
+      initComputed(vm, options.computed);
+    }
 
-    if (options.watch) ;
+    if (options.watch) {
+      initWatch(vm, options.watch);
+    }
   }
 
   function initMethods(vm) {
@@ -449,6 +460,56 @@
         vm[source][key] = newValue;
       }
     });
+  }
+
+  function initComputed(vm, computed) {
+    var watchers = vm._computedWatchers = Object.create(null);
+
+    for (var key in computed) {
+      var userDef = computed[key];
+      var getter = typeof userDef === 'function' ? userDef : userDef.get;
+      watchers[key] = new Watcher(vm, getter, function () {});
+
+      if (!(key in vm)) {
+        // computed 定义的变量一般不在 vm 上
+        defineComputed(vm, key, userDef);
+      }
+    }
+  }
+
+  function defineComputed(target, key, userDef) {
+    if (typeof userDef === 'function') {
+      sharedPropertyDefinition.get = createComputedGetter(key);
+
+      sharedPropertyDefinition.set = function () {};
+    }
+
+    Object.defineProperty(target, key, sharedPropertyDefinition);
+  }
+
+  function createComputedGetter(key) {
+    return function computedGetter() {
+      var watcher = this._computedWatchers && this._computedWatchers[key];
+
+      if (watcher) {
+        return watcher.value;
+      }
+    };
+  }
+
+  function initWatch(vm, watch) {
+    for (var key in watch) {
+      var handler = watch[key];
+      createWatcher(vm, key, handler);
+    }
+  }
+
+  function createWatcher(vm, expOrFn, handler, options) {
+    if (typeof handler === 'string') {
+      handler = vm[handler];
+    }
+
+    return vm.$watch(expOrFn, handler, options);
   }
 
   function stateMixin(Vue) {

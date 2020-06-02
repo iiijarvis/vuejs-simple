@@ -30,6 +30,19 @@
           list: [{ name: 1 }, { name: 2 }]
         }
       },
+      // watch: {
+      //   'user.age': function (newVal, oldVal) {
+      //     console.log(newVal, oldVal);
+      //   }
+      // },
+      // computed: {
+      //   plus() {
+      //     return this.number + 2;
+      //   },
+      //   del() {
+      //     return this.number === 2 ? this.name : this.user;
+      //   }
+      // },
       methods: {
         add() {
           this.number = this.number + 1;
@@ -37,12 +50,14 @@
       }
     });
     console.log(vm._data.list.push({ name: 3 }));
-    let teardown = vm.$watch('user.age', (newVal, oldVal) => {
+    let teardown = vm.$watch(function () {
+      return this.number === 2 ? this.name : this.user;
+    }, (newVal, oldVal) => {
       console.log(newVal, oldVal);
     }, {
       immediate: true
     });
-    // teardown(); 取消监听
+    // teardown(); // 取消监听
   </script>
 </body>
 

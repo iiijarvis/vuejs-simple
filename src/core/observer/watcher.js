@@ -43,7 +43,7 @@ class Watcher {
   }
 
   run () {
-    let value = this.getter.call(this.vm, this.vm);
+    let value = this.get();
     if (value !== this.value) {
       let oldValue = this.value;
       this.value = value;

@@ -1,6 +1,14 @@
 import { observe } from '../observer/index'
 import { bind } from '../util/index'
 import Watcher from '../observer/watcher'
+import Dep from '../observer/dep';
+
+const sharedPropertyDefinition = {
+  enumerable: true,
+  configurable: true,
+  get: () => { },
+  set: () => { }
+}
 
 function initState (vm) {
   const options = vm.$options;
@@ -14,10 +22,10 @@ function initState (vm) {
     initData(vm);
   }
   if (options.computed) {
-    initComputed();
+    initComputed(vm, options.computed);
   }
   if (options.watch) {
-    initWatch();
+    initWatch(vm, options.watch);
   }
 }
 
@@ -55,9 +63,52 @@ function proxy (vm, source, key) {
   })
 }
 
-function initComputed () { }
+function initComputed (vm, computed) {
+  const watchers = vm._computedWatchers = Object.create(null);
 
-function initWatch () { }
+  for (let key in computed) {
+    const userDef = computed[key];
+    let getter = typeof userDef === 'function' ? userDef : userDef.get;
+    watchers[key] = new Watcher(vm, getter, () => { });
+
+    if (!(key in vm)) { // computed 定义的变量一般不在 vm 上
+      defineComputed(vm, key, userDef);
+    }
+  }
+}
+
+function defineComputed (target, key, userDef) {
+  if (typeof userDef === 'function') {
+    sharedPropertyDefinition.get = createComputedGetter(key);
+    sharedPropertyDefinition.set = () => { };
+  }
+  Object.defineProperty(target, key, sharedPropertyDefinition);
+}
+
+function createComputedGetter (key) {
+  return function computedGetter () {
+    const watcher = this._computedWatchers && this._computedWatchers[key];
+
+    if (watcher) {
+      return watcher.value;
+    }
+  }
+}
+
+function initWatch (vm, watch) {
+  for (let key in watch) {
+    const handler = watch[key];
+
+    createWatcher(vm, key, handler);
+  }
+}
+
+function createWatcher (vm, expOrFn, handler, options) {
+  if (typeof handler === 'string') {
+    handler = vm[handler];
+  }
+  return vm.$watch(expOrFn, handler, options);
+}
 
 export function stateMixin (Vue) {
   Vue.prototype.$watch = function (expOrFn, cb, options) {
