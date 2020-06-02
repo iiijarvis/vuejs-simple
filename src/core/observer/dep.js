@@ -1,3 +1,5 @@
+import { remove } from '../util/index'
+
 let uid = 0;
 
 export default class Dep {

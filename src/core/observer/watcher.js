@@ -9,6 +9,7 @@ class Watcher {
     this.vm = vm;
     this.callback = callback;
     this.options = options;
+    this.deps = [];
     this.depIds = new Set();
     this.id = ++uid;
 
@@ -21,14 +22,14 @@ class Watcher {
     this.value = this.get();
   }
   get () {
-    pushTarget(this);
+    Dep.target = this;
     let value = '';
     try {
       value = this.getter.call(this.vm, this.vm);
     } catch (e) {
 
     } finally {
-      popTarget();
+      Dep.target = null;
     }
     return value;
   }
@@ -37,6 +38,7 @@ class Watcher {
     if (!this.depIds.has(dep.id)) {
       dep.addSub(this);
       this.depIds.add(dep.id);
+      this.deps.push(dep);
     }
   }
 
@@ -51,6 +53,13 @@ class Watcher {
 
   update () {
     queueWatcher(this);
+  }
+
+  teardown () {
+    let i = this.deps.length;
+    while (i--) {
+      this.deps[i].removeSub(this);
+    }
   }
 }
 

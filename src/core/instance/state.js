@@ -1,5 +1,6 @@
 import { observe } from '../observer/index'
 import { bind } from '../util/index'
+import Watcher from '../observer/watcher'
 
 function initState (vm) {
   const options = vm.$options;
@@ -54,9 +55,22 @@ function proxy (vm, source, key) {
   })
 }
 
-
 function initComputed () { }
 
 function initWatch () { }
+
+export function stateMixin (Vue) {
+  Vue.prototype.$watch = function (expOrFn, cb, options) {
+    const vm = this;
+    options = options || {};
+    const watcher = new Watcher(vm, expOrFn, cb);
+    if (options.immediate) {
+      cb.call(vm, watcher.value);
+    }
+    return function unwatchFn () {
+      watcher.teardown();
+    }
+  }
+}
 
 export { initState };

@@ -131,6 +131,15 @@
       return obj;
     };
   }
+  function remove(arr, item) {
+    if (arr.length) {
+      var index = arr.indexOf(item);
+
+      if (index > -1) {
+        return arr.splice(index, 1);
+      }
+    }
+  }
 
   var oldArrayMethods = Array.prototype;
   var arrayMethods = Object.create(oldArrayMethods);
@@ -206,15 +215,6 @@
     return Dep;
   }();
   Dep.target = null;
-  var targetStack = [];
-  function pushTarget(target) {
-    targetStack.push(target);
-    Dep.target = target;
-  }
-  function popTarget() {
-    targetStack.pop();
-    Dep.target = targetStack[targetStack.length - 1];
-  }
 
   function observe(data) {
     if (!isObject(data)) return;
@@ -278,6 +278,129 @@
     });
   }
 
+  var has = {};
+  var flushing = false;
+  var queue = [];
+  var index = 0;
+  var waiting = false;
+  function queueWatcher(watcher) {
+    var id = watcher.id;
+
+    if (!has[id]) {
+      has[id] = true;
+
+      if (!flushing) {
+        queue.push(watcher);
+      } else {
+        // 执行 flushSchedulerQueue 过程中插入 watcher
+        var i = queue.length - 1; // 按从小到大排列 插入id
+
+        while (i > index && queue[index].id > id) {
+          i--;
+        }
+
+        queue.splice(i + 1, 0, watcher);
+      }
+
+      if (!waiting) {
+        waiting = true;
+        setTimeout(flushSchedulerQueue, 0);
+      }
+    }
+  }
+
+  function flushSchedulerQueue() {
+    flushing = true;
+    queue.sort(function (a, b) {
+      return a.id - b.id;
+    });
+
+    for (index = 0; index < queue.length; index++) {
+      var watcher = queue[index];
+      has[watcher.id] = null;
+      watcher.run();
+    }
+
+    index = queue.length = 0;
+    has = {};
+    flushing = waiting = false;
+  }
+
+  var uid$1 = 0;
+
+  var Watcher = /*#__PURE__*/function () {
+    function Watcher(vm, exprOrFn, callback, options) {
+      _classCallCheck(this, Watcher);
+
+      this.vm = vm;
+      this.callback = callback;
+      this.options = options;
+      this.deps = [];
+      this.depIds = new Set();
+      this.id = ++uid$1;
+
+      if (typeof exprOrFn === 'function') {
+        this.getter = exprOrFn;
+      } else {
+        this.getter = parsePath(exprOrFn);
+      }
+
+      this.value = this.get();
+    }
+
+    _createClass(Watcher, [{
+      key: "get",
+      value: function get() {
+        Dep.target = this;
+        var value = '';
+
+        try {
+          value = this.getter.call(this.vm, this.vm);
+        } catch (e) {} finally {
+          Dep.target = null;
+        }
+
+        return value;
+      }
+    }, {
+      key: "addDep",
+      value: function addDep(dep) {
+        if (!this.depIds.has(dep.id)) {
+          dep.addSub(this);
+          this.depIds.add(dep.id);
+          this.deps.push(dep);
+        }
+      }
+    }, {
+      key: "run",
+      value: function run() {
+        var value = this.getter.call(this.vm, this.vm);
+
+        if (value !== this.value) {
+          var oldValue = this.value;
+          this.value = value;
+          this.callback.call(this.vm, this.value, oldValue);
+        }
+      }
+    }, {
+      key: "update",
+      value: function update() {
+        queueWatcher(this);
+      }
+    }, {
+      key: "teardown",
+      value: function teardown() {
+        var i = this.deps.length;
+
+        while (i--) {
+          this.deps[i].removeSub(this);
+        }
+      }
+    }]);
+
+    return Watcher;
+  }();
+
   function initState(vm) {
     var options = vm.$options;
 
@@ -326,6 +449,22 @@
         vm[source][key] = newValue;
       }
     });
+  }
+
+  function stateMixin(Vue) {
+    Vue.prototype.$watch = function (expOrFn, cb, options) {
+      var vm = this;
+      options = options || {};
+      var watcher = new Watcher(vm, expOrFn, cb);
+
+      if (options.immediate) {
+        cb.call(vm, watcher.value);
+      }
+
+      return function unwatchFn() {
+        watcher.teardown();
+      };
+    };
   }
 
   function genAssignmentCode(value, assignment) {
@@ -645,118 +784,6 @@
     var renderFn = new Function("with(this){return ".concat(code, "}"));
     return renderFn;
   }
-
-  var has = {};
-  var flushing = false;
-  var queue = [];
-  var index = 0;
-  var waiting = false;
-  function queueWatcher(watcher) {
-    var id = watcher.id;
-
-    if (!has[id]) {
-      has[id] = true;
-
-      if (!flushing) {
-        queue.push(watcher);
-      } else {
-        // 执行 flushSchedulerQueue 过程中插入 watcher
-        var i = queue.length - 1; // 按从小到大排列 插入id
-
-        while (i > index && queue[index].id > id) {
-          i--;
-        }
-
-        queue.splice(i + 1, 0, watcher);
-      }
-
-      if (!waiting) {
-        waiting = true;
-        setTimeout(flushSchedulerQueue, 0);
-      }
-    }
-  }
-
-  function flushSchedulerQueue() {
-    flushing = true;
-    queue.sort(function (a, b) {
-      return a.id - b.id;
-    });
-
-    for (index = 0; index < queue.length; index++) {
-      var watcher = queue[index];
-      has[watcher.id] = null;
-      watcher.run();
-    }
-
-    index = queue.length = 0;
-    has = {};
-    flushing = waiting = false;
-  }
-
-  var uid$1 = 0;
-
-  var Watcher = /*#__PURE__*/function () {
-    function Watcher(vm, exprOrFn, callback, options) {
-      _classCallCheck(this, Watcher);
-
-      this.vm = vm;
-      this.callback = callback;
-      this.options = options;
-      this.depIds = new Set();
-      this.id = ++uid$1;
-
-      if (typeof exprOrFn === 'function') {
-        this.getter = exprOrFn;
-      } else {
-        this.getter = parsePath(exprOrFn);
-      }
-
-      this.value = this.get();
-    }
-
-    _createClass(Watcher, [{
-      key: "get",
-      value: function get() {
-        pushTarget(this);
-        var value = '';
-
-        try {
-          value = this.getter.call(this.vm, this.vm);
-        } catch (e) {} finally {
-          popTarget();
-        }
-
-        return value;
-      }
-    }, {
-      key: "addDep",
-      value: function addDep(dep) {
-        if (!this.depIds.has(dep.id)) {
-          dep.addSub(this);
-          this.depIds.add(dep.id);
-        }
-      }
-    }, {
-      key: "run",
-      value: function run() {
-        var value = this.getter.call(this.vm, this.vm);
-
-        if (value !== this.value) {
-          var oldValue = this.value;
-          this.value = value;
-          this.callback.call(this.vm, this.value, oldValue);
-        }
-      }
-    }, {
-      key: "update",
-      value: function update() {
-        queueWatcher(this);
-      }
-    }]);
-
-    return Watcher;
-  }();
 
   function createElement(tag) {
     var data = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
@@ -1140,6 +1167,7 @@
     this._init(options);
   }
   initMixin(Vue);
+  stateMixin(Vue);
   renderMixin(Vue);
   lifecycleMixin(Vue);
 
