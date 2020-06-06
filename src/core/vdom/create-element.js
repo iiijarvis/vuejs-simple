@@ -1,22 +1,31 @@
-export function createElement (tag, data = {}, ...children) {
+import { isReservedTag } from '../util/index'
+import { createComponent } from './create-component'
+import { VNode } from './vnode'
+
+export function createElement (context, tag, data = {}, ...children) {
   let key = data.key;
+  let vnode;
   if (key) {
     delete data.key;
   }
-  return VNode(tag, data, key, children, undefined);
+  if (typeof tag === 'string') {
+    let Ctor;
+    if (isReservedTag(tag)) {
+      vnode = new VNode(tag, data, key, children, undefined);
+    } else if (Ctor = resolveAsset(context.$options, 'components', tag)) {
+      vnode = createComponent(Ctor, data, context, children, tag)
+    } else {
+      vnode = new VNode(tag, data, key, children, undefined);
+    }
+  }
+  return vnode;
 }
 
 export function createTextNode (text) {
-  return VNode(undefined, undefined, undefined, undefined, text);
+  return new VNode(undefined, undefined, undefined, undefined, text);
 }
 
-export function VNode (tag, data, key, children, text, elm) {
-  return {
-    tag: tag,
-    data: data,
-    key: key,
-    children: children,
-    text: text,
-    elm: elm
-  };
+function resolveAsset (options, type, id) {
+  const assets = options[type];
+  return assets[id];
 }

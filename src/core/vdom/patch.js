@@ -1,11 +1,11 @@
-import { VNode } from './create-element'
+import { VNode } from './vnode'
+import { createComponentInstanceForVnode } from './create-component'
 
 export function createPatchFunction (oldVnode, vnode) {
   const vm = this;
   return patch(oldVnode, vnode);
 
   function patch (oldVnode, vnode) {
-    const isRealElement = oldVnode.nodeType; // 虚拟dom没有nodeType属性，真实dom才有
     // let parent = vm.$el.parentNode;
     // const oldElm = oldVnode;
     // const parentElm = oldElm.parentNode;
@@ -15,34 +15,57 @@ export function createPatchFunction (oldVnode, vnode) {
     // if (isRealElement) {
     //   parentElm.removeChild(oldElm);
     // }
-    if (!isRealElement && sameVnode(oldVnode, vnode)) {
-      patchVnode(oldVnode, vnode);
-    } else {
-      if (isRealElement) {
-        oldVnode = emptyNodeAt(oldVnode);
-      }
-      let elm = oldVnode.elm;
-      let parent = elm.parentNode;
+    if (!oldVnode) {
       createElm(vnode);
-      parent.insertBefore(vnode.elm, elm);
-      parent.removeChild(elm);
+    } else {
+      const isRealElement = oldVnode.nodeType; // 虚拟dom没有nodeType属性，真实dom才有
+
+      if (!isRealElement && sameVnode(oldVnode, vnode)) {
+        patchVnode(oldVnode, vnode);
+      } else {
+        if (isRealElement) {
+          oldVnode = emptyNodeAt(oldVnode);
+        }
+        let elm = oldVnode.elm;
+        let parent = elm.parentNode;
+        createElm(vnode, [], parent);
+        parent.insertBefore(vnode.elm, elm);
+        parent.removeChild(elm);
+      }
     }
     return vnode.elm;
   }
 
-  function createElm (vnode) {
+  function createElm (vnode, insertedVnodeQueue, parentElm, refElm) {
     let { tag, data, key, children, text } = vnode;
+
+    if (createComponent(vnode, [], parentElm, undefined)) {
+      return
+    }
 
     if (typeof tag === 'string') {
       vnode.elm = document.createElement(tag);
       children.forEach(child => {
-        return vnode.elm.appendChild(createElm(child));
+        try {
+          return vnode.elm.appendChild(createElm(child, [], vnode.elm));
+        } catch (e) {
+          console.log(e);
+        }
       })
       updateProperties(vnode);
     } else {
       vnode.elm = document.createTextNode(text);
     }
     return vnode.elm;
+  }
+
+  function createComponent (vnode, insertedVnodeQueue, parentElm, refElm) {
+    if (vnode.tag && vnode.tag.indexOf('vue-component') > -1) {
+      let child = createComponentInstanceForVnode(vnode, parentElm);
+      child.$mount();
+      parentElm.appendChild(child.$el)
+      return true;
+    }
   }
 
   function patchVnode (oldVnode, vnode) {
@@ -94,7 +117,7 @@ export function createPatchFunction (oldVnode, vnode) {
     for (; startIdx <= endIdx; ++startIdx) {
       let vnode = vnodes[startIdx];
       if (vnode) {
-        parent.insertBefore(createElm(vnode), before);
+        parent.insertBefore(createElm(vnode, [], parent), before);
       }
     }
   }
@@ -145,11 +168,11 @@ export function createPatchFunction (oldVnode, vnode) {
         }
         idxInold = oldKeyToIdx[newStartVnode.key];
         if (idxInold === undefined) {
-          parentElm.insertBefore(createElm(newStartVnode), oldStartVnode.elm);
+          parentElm.insertBefore(createElm(newStartVnode, [], parentElm), oldStartVnode.elm);
         } else {
           let moveVnode = oldCh[idxInold];
           if (!sameVnode(moveVnode, newStartVnode)) {
-            parentElm.insertBefore(createElm(newStartVnode), oldStartVnode.elm);
+            parentElm.insertBefore(createElm(newStartVnode, [], parentElm), oldStartVnode.elm);
           } else {
             patchVnode(moveVnode, newStartVnode);
             parentElm.insertBefore(moveVnode.elm, oldStartVnode.elm);

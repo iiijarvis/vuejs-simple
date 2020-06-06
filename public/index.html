@@ -9,14 +9,24 @@
 </head>
 
 <body>
-  <div class="a" style="height: 20px;color: #cccccc;width: 100px;" id="app">
+  <div class="a" style="color: #cccccc;" id="app">
     <p>hello {{name}}</p>
-    <p>hello {{name}}</p>
-    <input v-model="name" />
-    <input v-model="name" />
-    <button @click="add">{{number}}</button>
+    <p><input v-model="name" /></p>
+    <p>
+      <button @click="add">{{number}}</button>
+    </p>
+    <button-component></button-component>
   </div>
   <script>
+
+    Vue.component('button-component', {
+      data() {
+        return {
+          msg: 'button-component'
+        }
+      },
+      template: '<div id="b"><input v-model="msg" />{{msg}}</div>'
+    });
 
     let vm = new Vue({
       el: '#app',

@@ -9,6 +9,7 @@ const dirRE = /^v-|^@/;
 
 import { genAssignmentCode } from './directives/model.js';
 
+
 let root = null;
 let currentParent = null;
 let stack = [];
@@ -33,6 +34,11 @@ function makeAttrsMap (attrs) {
 }
 
 export function parseHtml (html) {
+
+  root = null;
+  currentParent = null;
+  stack = [];
+
   while (html) {
     let textEnd = html.indexOf('<');
     if (textEnd === 0) {

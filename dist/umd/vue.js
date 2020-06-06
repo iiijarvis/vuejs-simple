@@ -1,7 +1,7 @@
 (function (global, factory) {
   typeof exports === 'object' && typeof module !== 'undefined' ? module.exports = factory() :
   typeof define === 'function' && define.amd ? define(factory) :
-  (global = global || self, global.Vue = factory());
+  (global = typeof globalThis !== 'undefined' ? globalThis : global || self, global.Vue = factory());
 }(this, (function () { 'use strict';
 
   function _typeof(obj) {
@@ -101,6 +101,9 @@
   function isObject(obj) {
     return obj !== null && _typeof(obj) === 'object';
   }
+  function isPlainObject(obj) {
+    return Object.prototype.toString.call(obj) === '[object Object]';
+  }
   function def(data, key, value, enumerable) {
     Object.defineProperty(data, key, {
       value: value,
@@ -139,6 +142,25 @@
         return arr.splice(index, 1);
       }
     }
+  }
+  function isReservedTag(tag) {
+    return isHTMLTag(tag) || isSVG(tag);
+  }
+  var isHTMLTag = makeMap('html,body,base,head,link,meta,style,title,' + 'address,article,aside,footer,header,h1,h2,h3,h4,h5,h6,hgroup,nav,section,' + 'div,dd,dl,dt,figcaption,figure,picture,hr,img,li,main,ol,p,pre,ul,' + 'a,b,abbr,bdi,bdo,br,cite,code,data,dfn,em,i,kbd,mark,q,rp,rt,rtc,ruby,' + 's,samp,small,span,strong,sub,sup,time,u,var,wbr,area,audio,map,track,video,' + 'embed,object,param,source,canvas,script,noscript,del,ins,' + 'caption,col,colgroup,table,thead,tbody,td,th,tr,' + 'button,datalist,fieldset,form,input,label,legend,meter,optgroup,option,' + 'output,progress,select,textarea,' + 'details,dialog,menu,menuitem,summary,' + 'content,element,shadow,template,blockquote,iframe,tfoot');
+  var isSVG = makeMap('svg,animate,circle,clippath,cursor,defs,desc,ellipse,filter,font-face,' + 'foreignObject,g,glyph,image,line,marker,mask,missing-glyph,path,pattern,' + 'polygon,polyline,rect,switch,symbol,text,textpath,tspan,use,view', true);
+  function makeMap(str, expectsLowerCase) {
+    var map = Object.create(null);
+    var list = str.split(',');
+
+    for (var i = 0; i < list.length; i++) {
+      map[list[i]] = true;
+    }
+
+    return expectsLowerCase ? function (val) {
+      return map[val.toLowerCase()];
+    } : function (val) {
+      return map[val];
+    };
   }
 
   var oldArrayMethods = Array.prototype;
@@ -565,6 +587,10 @@
   }
 
   function parseHtml(html) {
+    root = null;
+    currentParent = null;
+    stack = [];
+
     while (html) {
       var textEnd = html.indexOf('<');
 
@@ -846,32 +872,49 @@
     return renderFn;
   }
 
-  function createElement(tag) {
-    var data = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
-    var key = data.key;
+  var VNode = function VNode(tag, data, key) {
+    var children = arguments.length > 3 && arguments[3] !== undefined ? arguments[3] : [];
+    var text = arguments.length > 4 ? arguments[4] : undefined;
+    var elm = arguments.length > 5 ? arguments[5] : undefined;
+    var context = arguments.length > 6 ? arguments[6] : undefined;
+    var componentOptions = arguments.length > 7 ? arguments[7] : undefined;
 
-    if (key) {
-      delete data.key;
+    _classCallCheck(this, VNode);
+
+    this.tag = tag;
+    this.data = data;
+    this.key = key;
+    this.children = children;
+    this.text = text;
+    this.elm = elm;
+    this.context = context;
+    this.componentOptions = componentOptions;
+  };
+
+  function createComponent(Ctor, data, context, children, tag) {
+    if (!Ctor) return;
+    var baseCtor = context.$options._base; // 针对局部组件注册场景
+
+    if (_typeof(Ctor) === 'object') {
+      Ctor = baseCtor.extend(Ctor);
     }
 
-    for (var _len = arguments.length, children = new Array(_len > 2 ? _len - 2 : 0), _key = 2; _key < _len; _key++) {
-      children[_key - 2] = arguments[_key];
-    }
-
-    return VNode(tag, data, key, children, undefined);
-  }
-  function createTextNode(text) {
-    return VNode(undefined, undefined, undefined, undefined, text);
-  }
-  function VNode(tag, data, key, children, text, elm) {
-    return {
+    data = data || {};
+    var name = Ctor.options.name || tag;
+    var vnode = new VNode("vue-component-".concat(Ctor.cid).concat(name ? "-".concat(name) : ''), data, undefined, undefined, undefined, undefined, context, {
+      Ctor: Ctor,
       tag: tag,
-      data: data,
-      key: key,
-      children: children,
-      text: text,
-      elm: elm
+      children: children
+    });
+    return vnode;
+  }
+  function createComponentInstanceForVnode(vnode, parent) {
+    var options = {
+      _isComponent: true,
+      _parentVnode: vnode,
+      parent: parent
     };
+    return new vnode.componentOptions.Ctor(options);
   }
 
   function createPatchFunction(oldVnode, vnode) {
@@ -879,7 +922,6 @@
     return patch(oldVnode, vnode);
 
     function patch(oldVnode, vnode) {
-      var isRealElement = oldVnode.nodeType; // 虚拟dom没有nodeType属性，真实dom才有
       // let parent = vm.$el.parentNode;
       // const oldElm = oldVnode;
       // const parentElm = oldElm.parentNode;
@@ -888,35 +930,48 @@
       // if (isRealElement) {
       //   parentElm.removeChild(oldElm);
       // }
-
-      if (!isRealElement && sameVnode(oldVnode, vnode)) {
-        patchVnode(oldVnode, vnode);
-      } else {
-        if (isRealElement) {
-          oldVnode = emptyNodeAt(oldVnode);
-        }
-
-        var elm = oldVnode.elm;
-        var parent = elm.parentNode;
+      if (!oldVnode) {
         createElm(vnode);
-        parent.insertBefore(vnode.elm, elm);
-        parent.removeChild(elm);
+      } else {
+        var isRealElement = oldVnode.nodeType; // 虚拟dom没有nodeType属性，真实dom才有
+
+        if (!isRealElement && sameVnode(oldVnode, vnode)) {
+          patchVnode(oldVnode, vnode);
+        } else {
+          if (isRealElement) {
+            oldVnode = emptyNodeAt(oldVnode);
+          }
+
+          var elm = oldVnode.elm;
+          var parent = elm.parentNode;
+          createElm(vnode, [], parent);
+          parent.insertBefore(vnode.elm, elm);
+          parent.removeChild(elm);
+        }
       }
 
       return vnode.elm;
     }
 
-    function createElm(vnode) {
+    function createElm(vnode, insertedVnodeQueue, parentElm, refElm) {
       var tag = vnode.tag,
           data = vnode.data,
           key = vnode.key,
           children = vnode.children,
           text = vnode.text;
 
+      if (createComponent(vnode, [], parentElm)) {
+        return;
+      }
+
       if (typeof tag === 'string') {
         vnode.elm = document.createElement(tag);
         children.forEach(function (child) {
-          return vnode.elm.appendChild(createElm(child));
+          try {
+            return vnode.elm.appendChild(createElm(child, [], vnode.elm));
+          } catch (e) {
+            console.log(e);
+          }
         });
         updateProperties(vnode);
       } else {
@@ -924,6 +979,15 @@
       }
 
       return vnode.elm;
+    }
+
+    function createComponent(vnode, insertedVnodeQueue, parentElm, refElm) {
+      if (vnode.tag && vnode.tag.indexOf('vue-component') > -1) {
+        var child = createComponentInstanceForVnode(vnode, parentElm);
+        child.$mount();
+        parentElm.appendChild(child.$el);
+        return true;
+      }
     }
 
     function patchVnode(oldVnode, vnode) {
@@ -980,7 +1044,7 @@
         var _vnode2 = vnodes[startIdx];
 
         if (_vnode2) {
-          parent.insertBefore(createElm(_vnode2), before);
+          parent.insertBefore(createElm(_vnode2, [], parent), before);
         }
       }
     }
@@ -1033,12 +1097,12 @@
           idxInold = oldKeyToIdx[newStartVnode.key];
 
           if (idxInold === undefined) {
-            parentElm.insertBefore(createElm(newStartVnode), oldStartVnode.elm);
+            parentElm.insertBefore(createElm(newStartVnode, [], parentElm), oldStartVnode.elm);
           } else {
             var moveVnode = oldCh[idxInold];
 
             if (!sameVnode(moveVnode, newStartVnode)) {
-              parentElm.insertBefore(createElm(newStartVnode), oldStartVnode.elm);
+              parentElm.insertBefore(createElm(newStartVnode, [], parentElm), oldStartVnode.elm);
             } else {
               patchVnode(moveVnode, newStartVnode);
               parentElm.insertBefore(moveVnode.elm, oldStartVnode.elm);
@@ -1166,7 +1230,15 @@
     Vue.prototype._init = function (options) {
       var vm = this;
       vm.$options = options;
-      initState(this);
+
+      if (options && options._isComponent) {
+        initInternalComponent(vm, options);
+      } else {
+        vm.$options = Object.assign({}, vm.constructor.options, options || {});
+      } // initRender(vm);
+
+
+      initState(vm);
 
       if (vm.$options.el) {
         vm.$mount(vm.$options.el);
@@ -1178,7 +1250,7 @@
     Vue.prototype.$mount = function (el) {
       var vm = this;
       var options = vm.$options;
-      el = document.querySelector(el); // options.el = el;
+      el = el ? document.querySelector(el) : undefined; // options.el = el;
 
       if (!options.render) {
         var template = options.template;
@@ -1193,6 +1265,50 @@
       mountComponent(vm, el);
     };
   }
+  function initInternalComponent(vm, options) {
+    var opts = vm.$options = Object.assign({}, vm.constructor.options, options); // const parentVnode = options._parentVnode
+    // opts.parent = options.parent
+    // opts._parentVnode = parentVnode
+    // if (options.render) {
+    //   opts.render = options.render
+    // }
+  }
+
+  function createElement(context, tag) {
+    var data = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : {};
+    var key = data.key;
+    var vnode;
+
+    if (key) {
+      delete data.key;
+    }
+
+    if (typeof tag === 'string') {
+      var Ctor;
+
+      for (var _len = arguments.length, children = new Array(_len > 3 ? _len - 3 : 0), _key = 3; _key < _len; _key++) {
+        children[_key - 3] = arguments[_key];
+      }
+
+      if (isReservedTag(tag)) {
+        vnode = new VNode(tag, data, key, children, undefined);
+      } else if (Ctor = resolveAsset(context.$options, 'components', tag)) {
+        vnode = createComponent(Ctor, data, context, children, tag);
+      } else {
+        vnode = new VNode(tag, data, key, children, undefined);
+      }
+    }
+
+    return vnode;
+  }
+  function createTextNode(text) {
+    return new VNode(undefined, undefined, undefined, undefined, text);
+  }
+
+  function resolveAsset(options, type, id) {
+    var assets = options[type];
+    return assets[id];
+  }
 
   function renderMixin(Vue) {
     // _c 创建元素的虚拟节点
@@ -1205,7 +1321,7 @@
         children[_key - 2] = arguments[_key];
       }
 
-      return createElement.apply(void 0, [tag, data].concat(children));
+      return createElement.apply(void 0, [this, tag, data].concat(children));
     };
 
     Vue.prototype._v = function (text) {
@@ -1231,6 +1347,75 @@
   stateMixin(Vue);
   renderMixin(Vue);
   lifecycleMixin(Vue);
+
+  var ASSET_TYPES = ['component'];
+
+  function initExtend(Vue) {
+    Vue.cid = 0;
+    var cid = 1;
+
+    Vue.extend = function (extendOptions) {
+      extendOptions = extendOptions || {};
+      var Super = this;
+      var SuperId = Super.cid;
+      var cachedCtors = extendOptions._Ctor || (extendOptions._Ctor = {});
+
+      if (cachedCtors[SuperId]) {
+        return cachedCtors[SuperId];
+      }
+
+      var name = extendOptions.name || Super.options.name;
+
+      var Sub = function VueComponent(options) {
+        this._init(options);
+      };
+
+      Sub.prototype = Object.create(Super.prototype);
+      Sub.prototype.constructor = Sub;
+      Sub.cid = cid++; // 简易形式， vue 使用 mergeOptions 合并
+
+      Sub.options = Object.assign({}, Super.options, extendOptions);
+      Sub['super'] = Super;
+      Sub.extend = Super.extend;
+
+      if (name) {
+        Sub.options.components[name] = Sub;
+      }
+
+      return Sub;
+    };
+  }
+
+  function initAssetRegisters(Vue) {
+    ASSET_TYPES.forEach(function (type) {
+      Vue[type] = function (id, definition) {
+        if (!definition) {
+          return this.options[type + 's'][id];
+        } else {
+          if (type === 'component' && isPlainObject(definition)) {
+            definition.name = definition.name || id;
+          }
+
+          definition = this.options._base.extend(definition); // 继承全局 vue 的 options
+
+          this.options[type + 's'][id] = definition;
+          return definition;
+        }
+      };
+    });
+  }
+
+  function initGlobalAPI(Vue) {
+    Vue.options = Object.create(null);
+    ASSET_TYPES.forEach(function (type) {
+      Vue.options[type + 's'] = Object.create(null);
+    });
+    Vue.options._base = Vue;
+    initExtend(Vue);
+    initAssetRegisters(Vue);
+  }
+
+  initGlobalAPI(Vue);
 
   return Vue;
 

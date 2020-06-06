@@ -2,13 +2,21 @@ import { initState } from './state'
 import { compileToFunctions } from '../../compiler/index'
 import { mountComponent } from './lifecycle'
 import { createPatchFunction } from '../vdom/patch'
+// import { initRender } from './render'
 
 export function initMixin (Vue) {
   Vue.prototype._init = function (options) {
     const vm = this;
     vm.$options = options;
 
-    initState(this);
+    if (options && options._isComponent) {
+      initInternalComponent(vm, options);
+    } else {
+      vm.$options = Object.assign({}, vm.constructor.options, options || {})
+    }
+
+    // initRender(vm);
+    initState(vm);
 
     if (vm.$options.el) {
       vm.$mount(vm.$options.el);
@@ -20,7 +28,7 @@ export function initMixin (Vue) {
   Vue.prototype.$mount = function (el) {
     const vm = this;
     const options = vm.$options;
-    el = document.querySelector(el);
+    el = el ? document.querySelector(el) : undefined;
     // options.el = el;
 
     if (!options.render) {
@@ -32,4 +40,15 @@ export function initMixin (Vue) {
     }
     mountComponent(vm, el);
   }
+}
+
+export function initInternalComponent (vm, options) {
+  const opts = vm.$options = Object.assign({}, vm.constructor.options, options)
+
+  // const parentVnode = options._parentVnode
+  // opts.parent = options.parent
+  // opts._parentVnode = parentVnode
+  // if (options.render) {
+  //   opts.render = options.render
+  // }
 }
