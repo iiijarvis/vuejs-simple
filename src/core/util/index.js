@@ -1,3 +1,5 @@
+import { LIFECYCLE_HOOKS } from '../shared/constants'
+
 export function isObject (obj) {
   return obj !== null && typeof obj === 'object';
 }
@@ -92,4 +94,54 @@ export function makeMap (str, expectsLowerCase) {
   return expectsLowerCase
     ? val => map[val.toLowerCase()]
     : val => map[val]
+}
+
+const strats = {}
+
+LIFECYCLE_HOOKS.forEach(hook => {
+  strats[hook] = mergeHook
+})
+
+function mergeHook (parentVal, childVal) {
+  if (childVal) {
+    if (parentVal) {
+      return parentVal.concat(childVal)
+    } else {
+      return [childVal]
+    }
+  } else {
+    return parentVal
+  }
+}
+
+export function mergeOptions (parent, child) {
+  // let a = { a: { c: 2 } };
+  // let b = { a: { b: 1 } };
+
+  const options = {};
+  for (let key in parent) {
+    mergeField(key);
+  }
+  for (let key in child) {
+    if (!parent[key]) {
+      mergeField(key);
+    }
+  }
+
+  function mergeField (key) {
+    if (strats[key]) {
+      options[key] = strats[key](parent[key], child[key])
+    } else {
+      if (isObject(parent[key]) && isObject(child[key])) {
+        options[key] = Object.assign(parent[key], child[key]);
+      } else {
+        if (!child[key]) {
+          options[key] = parent[key];
+        } else {
+          options[key] = child[key];
+        }
+      }
+    }
+  }
+  return options;
 }

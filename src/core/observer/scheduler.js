@@ -1,3 +1,6 @@
+
+import { callHook } from '../instance/lifecycle'
+
 let has = {};
 let flushing = false;
 let queue = [];
@@ -29,10 +32,16 @@ function flushSchedulerQueue () {
   queue.sort((a, b) => a.id - b.id);
   for (index = 0; index < queue.length; index++) {
     let watcher = queue[index];
+    if (watcher.before) {
+      watcher.before()
+    }
     has[watcher.id] = null;
     watcher.run();
   }
   index = queue.length = 0;
   has = {};
   flushing = waiting = false;
+
+  callHook(vm, 'updated');
+
 }

@@ -25,6 +25,12 @@
           msg: 'button-component'
         }
       },
+      beforeCreate() {
+        console.log('beforeCreate two');
+      },
+      created() {
+        console.log('created two');
+      },
       template: '<div id="b"><input v-model="msg" />{{msg}}</div>'
     });
 
@@ -39,6 +45,24 @@
           },
           list: [{ name: 1 }, { name: 2 }]
         }
+      },
+      destroyed() {
+        console.log('destroyed');
+      },
+      beforeDestroy() {
+        console.log('beforeDestroy');
+      },
+      beforeUpdate() {
+        console.log('beforeUpdate');
+      },
+      updated() {
+        console.log('updated');
+      },
+      beforeCreate() {
+        console.log('beforeCreate one');
+      },
+      created() {
+        console.log('created one');
       },
       // watch: {
       //   'user.age': function (newVal, oldVal) {
@@ -68,6 +92,7 @@
       immediate: true
     });
     // teardown(); // 取消监听
+    vm.$destroy();
   </script>
 </body>
 

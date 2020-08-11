@@ -2,21 +2,25 @@ import { initState } from './state'
 import { compileToFunctions } from '../../compiler/index'
 import { mountComponent } from './lifecycle'
 import { createPatchFunction } from '../vdom/patch'
+import { callHook } from './lifecycle'
+import { mergeOptions } from '../util/index'
 // import { initRender } from './render'
 
 export function initMixin (Vue) {
   Vue.prototype._init = function (options) {
     const vm = this;
-    vm.$options = options;
 
     if (options && options._isComponent) {
       initInternalComponent(vm, options);
     } else {
-      vm.$options = Object.assign({}, vm.constructor.options, options || {})
+      vm.$options = mergeOptions(vm.constructor.options, options || {});
     }
+
+    callHook(vm, 'beforeCreate');
 
     // initRender(vm);
     initState(vm);
+    callHook(vm, 'created');
 
     if (vm.$options.el) {
       vm.$mount(vm.$options.el);
@@ -43,7 +47,7 @@ export function initMixin (Vue) {
 }
 
 export function initInternalComponent (vm, options) {
-  const opts = vm.$options = Object.assign({}, vm.constructor.options, options)
+  const opts = vm.$options = mergeOptions(options || {}, vm.constructor.options);
 
   // const parentVnode = options._parentVnode
   // opts.parent = options.parent

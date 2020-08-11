@@ -98,6 +98,9 @@
     throw new TypeError("Invalid attempt to destructure non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method.");
   }
 
+  var ASSET_TYPES = ['component'];
+  var LIFECYCLE_HOOKS = ['beforeCreate', 'created', 'beforeMount', 'mounted', 'beforeUpdate', 'updated', 'beforeDestroy', 'destroyed'];
+
   function isObject(obj) {
     return obj !== null && _typeof(obj) === 'object';
   }
@@ -161,6 +164,56 @@
     } : function (val) {
       return map[val];
     };
+  }
+  var strats = {};
+  LIFECYCLE_HOOKS.forEach(function (hook) {
+    strats[hook] = mergeHook;
+  });
+
+  function mergeHook(parentVal, childVal) {
+    if (childVal) {
+      if (parentVal) {
+        return parentVal.concat(childVal);
+      } else {
+        return [childVal];
+      }
+    } else {
+      return parentVal;
+    }
+  }
+
+  function mergeOptions(parent, child) {
+    // let a = { a: { c: 2 } };
+    // let b = { a: { b: 1 } };
+    var options = {};
+
+    for (var key in parent) {
+      mergeField(key);
+    }
+
+    for (var _key in child) {
+      if (!parent[_key]) {
+        mergeField(_key);
+      }
+    }
+
+    function mergeField(key) {
+      if (strats[key]) {
+        options[key] = strats[key](parent[key], child[key]);
+      } else {
+        if (isObject(parent[key]) && isObject(child[key])) {
+          options[key] = Object.assign(parent[key], child[key]);
+        } else {
+          if (!child[key]) {
+            options[key] = parent[key];
+          } else {
+            options[key] = child[key];
+          }
+        }
+      }
+    }
+
+    return options;
   }
 
   var oldArrayMethods = Array.prototype;
@@ -300,6 +353,386 @@
     });
   }
 
+  var VNode = function VNode(tag, data, key) {
+    var children = arguments.length > 3 && arguments[3] !== undefined ? arguments[3] : [];
+    var text = arguments.length > 4 ? arguments[4] : undefined;
+    var elm = arguments.length > 5 ? arguments[5] : undefined;
+    var context = arguments.length > 6 ? arguments[6] : undefined;
+    var componentOptions = arguments.length > 7 ? arguments[7] : undefined;
+
+    _classCallCheck(this, VNode);
+
+    this.tag = tag;
+    this.data = data;
+    this.key = key;
+    this.children = children;
+    this.text = text;
+    this.elm = elm;
+    this.context = context;
+    this.componentOptions = componentOptions;
+  };
+
+  function createComponent(Ctor, data, context, children, tag) {
+    if (!Ctor) return;
+    var baseCtor = context.$options._base; // 针对局部组件注册场景
+
+    if (_typeof(Ctor) === 'object') {
+      Ctor = baseCtor.extend(Ctor);
+    }
+
+    data = data || {};
+    var name = Ctor.options.name || tag;
+    var vnode = new VNode("vue-component-".concat(Ctor.cid).concat(name ? "-".concat(name) : ''), data, undefined, undefined, undefined, undefined, context, {
+      Ctor: Ctor,
+      tag: tag,
+      children: children
+    });
+    return vnode;
+  }
+  function createComponentInstanceForVnode(vnode, parent) {
+    var options = {
+      _isComponent: true,
+      _parentVnode: vnode,
+      parent: parent
+    };
+    return new vnode.componentOptions.Ctor(options);
+  }
+
+  function createPatchFunction(oldVnode, vnode) {
+    var vm = this;
+    return patch(oldVnode, vnode);
+
+    function patch(oldVnode, vnode) {
+      // let parent = vm.$el.parentNode;
+      // const oldElm = oldVnode;
+      // const parentElm = oldElm.parentNode;
+      // let el = createElm(vnode);
+      // parent.appendChild(el);
+      // if (isRealElement) {
+      //   parentElm.removeChild(oldElm);
+      // }
+      if (!oldVnode) {
+        createElm(vnode);
+      } else {
+        var isRealElement = oldVnode.nodeType; // 虚拟dom没有nodeType属性，真实dom才有
+
+        if (!isRealElement && sameVnode(oldVnode, vnode)) {
+          patchVnode(oldVnode, vnode);
+        } else {
+          if (isRealElement) {
+            oldVnode = emptyNodeAt(oldVnode);
+          }
+
+          var elm = oldVnode.elm;
+          var parent = elm.parentNode;
+          createElm(vnode, [], parent);
+          parent.insertBefore(vnode.elm, elm);
+          parent.removeChild(elm);
+        }
+      }
+
+      return vnode.elm;
+    }
+
+    function createElm(vnode, insertedVnodeQueue, parentElm, refElm) {
+      var tag = vnode.tag,
+          data = vnode.data,
+          key = vnode.key,
+          children = vnode.children,
+          text = vnode.text;
+
+      if (createComponent(vnode, [], parentElm)) {
+        return;
+      }
+
+      if (typeof tag === 'string') {
+        vnode.elm = document.createElement(tag);
+        children.forEach(function (child) {
+          try {
+            return vnode.elm.appendChild(createElm(child, [], vnode.elm));
+          } catch (e) {
+            console.log(e);
+          }
+        });
+        updateProperties(vnode);
+      } else {
+        vnode.elm = document.createTextNode(text);
+      }
+
+      return vnode.elm;
+    }
+
+    function createComponent(vnode, insertedVnodeQueue, parentElm, refElm) {
+      if (vnode.tag && vnode.tag.indexOf('vue-component') > -1) {
+        var child = createComponentInstanceForVnode(vnode, parentElm);
+        child.$mount();
+        parentElm.appendChild(child.$el);
+        return true;
+      }
+    }
+
+    function patchVnode(oldVnode, vnode) {
+      if (oldVnode === vnode) return;
+      var elm = vnode.elm = oldVnode.elm;
+      var oldCh = oldVnode.children;
+      var ch = vnode.children;
+
+      if (!vnode.text) {
+        // 判断是否为文本
+        if (oldCh && ch) {
+          // 是否有子节点
+          updateChildren(elm, oldCh, ch);
+        } else if (ch) {
+          if (oldCh.text) {
+            elm.textContent = '';
+          }
+
+          addVnodes(elm, null, ch, 0, ch.length - 1);
+        } else if (oldCh) {
+          removeVnodes(elm, oldCh, 0, oldCh.length - 1);
+        } else {
+          elm.textContent = '';
+        }
+
+        updateDOMProps(oldVnode, vnode);
+      } else {
+        if (oldCh) {
+          removeVnodes(elm, oldCh, 0, oldCh.length - 1);
+        }
+
+        elm.textContent = vnode.text;
+      }
+    }
+
+    function emptyNodeAt(elm) {
+      return new VNode(elm.tagName.toLowerCase(), {}, [], undefined, undefined, elm);
+    }
+
+    function sameVnode(oldVnode, vnode) {
+      return oldVnode.key === vnode.key && oldVnode.tag === vnode.tag;
+    }
+
+    function removeVnodes(parent, vnodes, startIdx, endIdx) {
+      for (var i = startIdx; i <= endIdx; i++) {
+        var _vnode = vnodes[i];
+        var elm = _vnode.elm;
+        parent.removeChild(elm);
+      }
+    }
+
+    function addVnodes(parent, before, vnodes, startIdx, endIdx) {
+      for (; startIdx <= endIdx; ++startIdx) {
+        var _vnode2 = vnodes[startIdx];
+
+        if (_vnode2) {
+          parent.insertBefore(createElm(_vnode2, [], parent), before);
+        }
+      }
+    }
+
+    function updateChildren(parentElm, oldCh, newCh) {
+      if (oldCh === newCh) return;
+      var oldStartIdx = 0,
+          oldEndIdx = oldCh.length - 1,
+          oldStartVnode = oldCh[0],
+          oldEndVnode = oldCh[oldEndIdx],
+          newStartIdx = 0,
+          newEndIdx = newCh.length - 1,
+          newStartVnode = newCh[0],
+          newEndVnode = newCh[newEndIdx],
+          oldKeyToIdx,
+          idxInold;
+
+      while (oldStartIdx <= oldEndIdx && newStartIdx <= newEndIdx) {
+        if (oldStartVnode == null) {
+          oldStartVnode = oldCh[++oldStartIdx];
+        } else if (oldEndVnode == null) {
+          oldEndVnode = oldCh[--oldEndIdx];
+        } else if (newStartVnode == null) {
+          newStartVnode = newCh[++newStartIdx];
+        } else if (newEndVnode == null) {
+          newEndVnode = newCh[--newEndIdx];
+        } else if (sameVnode(oldStartVnode, newStartVnode)) {
+          patchVnode(oldStartVnode, newStartVnode);
+          oldStartVnode = oldCh[++oldStartIdx];
+          newStartVnode = newCh[++newStartIdx];
+        } else if (sameVnode(oldEndVnode, newEndVnode)) {
+          patchVnode(oldEndVnode, newEndVnode);
+          oldEndVnode = oldCh[--oldEndIdx];
+          newEndVnode = newCh[--newEndIdx];
+        } else if (sameVnode(oldStartVnode, newEndVnode)) {
+          patchVnode(oldStartVnode, newEndVnode);
+          parentElm.insertBefore(oldStartVnode.elm, oldEndVnode.elm.nextSibling);
+          oldStartVnode = oldCh[++oldStartIdx];
+          newEndVnode = newCh[--newEndIdx];
+        } else if (sameVnode(oldEndVnode, newStartVnode)) {
+          patchVnode(oldEndVnode, newStartVnode);
+          parentElm.insertBefore(oldEndVnode.elm, oldStartVnode.elm);
+          oldEndVnode = oldCh[--oldEndIdx];
+          newStartVnode = newCh[++newStartIdx];
+        } else {
+          if (oldKeyToIdx === undefined) {
+            oldKeyToIdx = createKeyToOldIdx(oldCh, oldStartIdx, oldEndIdx);
+          }
+
+          idxInold = oldKeyToIdx[newStartVnode.key];
+
+          if (idxInold === undefined) {
+            parentElm.insertBefore(createElm(newStartVnode, [], parentElm), oldStartVnode.elm);
+          } else {
+            var moveVnode = oldCh[idxInold];
+
+            if (!sameVnode(moveVnode, newStartVnode)) {
+              parentElm.insertBefore(createElm(newStartVnode, [], parentElm), oldStartVnode.elm);
+            } else {
+              patchVnode(moveVnode, newStartVnode);
+              parentElm.insertBefore(moveVnode.elm, oldStartVnode.elm);
+              oldCh[idxInold] = null;
+            }
+          }
+
+          newStartVnode = newCh[++newStartIdx];
+        }
+      }
+
+      if (oldStartIdx <= oldEndIdx || newStartIdx <= newEndIdx) {
+        if (oldStartIdx > oldEndIdx) {
+          // 插入剩余新增的子节点
+          var before = newCh[newEndIdx + 1] ? newCh[newEndIdx + 1].elm : null;
+          addVnodes(parentElm, before, newCh, newStartIdx, newEndIdx);
+        } else {
+          // 删除废弃的子节点
+          removeVnodes(parentElm, oldCh, oldStartIdx, oldEndIdx);
+        }
+      }
+    }
+
+    function createKeyToOldIdx(children, startIdx, endIdx) {
+      var map = {};
+
+      for (var i = startIdx; i <= endIdx; i++) {
+        var key = children[i].key;
+
+        if (key) {
+          map[key] = i;
+        }
+      }
+
+      return map;
+    }
+
+    function updateProperties(vnode) {
+      var props = vnode.data;
+      var elm = vnode.elm;
+
+      if (props) {
+        if (props.attrs) {
+          for (var attr in props.attrs) {
+            if (attr === 'style') {
+              for (var styleName in props.attrs.style) {
+                elm.style[styleName] = props.attrs.style[styleName];
+              }
+            } else if (attr === 'class') {
+              elm.className = props.attrs[attr];
+            } else {
+              elm.setAttribute(attr, props.attrs[attr]);
+            }
+          }
+        }
+
+        if (props.on) {
+          for (var event in props.on) {
+            elm.addEventListener(event, props.on[event].bind(vm));
+          }
+        }
+
+        if (props.domProps) {
+          for (var prop in props.domProps) {
+            // elm.prop=props.domProps[prop]
+            elm.setAttribute(prop, props.domProps[prop]);
+          }
+        }
+      }
+    }
+
+    function updateDOMProps(oldVnode, vnode) {
+      if (!oldVnode.data.domProps && !vnode.data.domProps) return;
+      var elm = vnode.elm;
+      var oldProps = oldVnode.data.domProps || {};
+      var props = vnode.data.domProps || {}; // 清空不在新 VNode 里在老 VNode 的 domProps
+
+      for (var key in oldProps) {
+        if (!props[key]) {
+          elm[key] = '';
+        }
+      }
+
+      for (var _key in props) {
+        var cur = props[_key];
+
+        if (_key === 'value') {
+          elm[_key] = cur;
+        } else {
+          elm[_key] = cur;
+        }
+      }
+    }
+  }
+
+  function mountComponent(vm, el) {
+    // const option=vm.$options;
+    vm.$el = el;
+    callHook(vm, 'beforeMount');
+
+    var updateComponent = function updateComponent() {
+      // _render 创建虚拟dom
+      // _update 解析虚拟dom并创建真实dom
+      var vnode = vm._render();
+
+      vm._update(vnode);
+    };
+
+    new Watcher(vm, updateComponent, function () {}, {
+      before: function before() {
+        callHook(vm, 'beforeUpdate');
+      }
+    });
+    callHook(vm, 'mounted');
+  }
+  function lifecycleMixin(Vue) {
+    Vue.prototype._update = function (vnode) {
+      var vm = this;
+      var prevVnode = vm._vnode;
+      vm._vnode = vnode;
+
+      if (!prevVnode) {
+        vm.$el = vm.__patch__(vm.$el, vnode);
+      } else {
+        vm.$el = vm.__patch__(prevVnode, vnode);
+      }
+    };
+
+    Vue.prototype.$destroy = function () {
+      var vm = this;
+      callHook(vm, 'beforeDestroy');
+
+      if (vm._watcher) {
+        vm._watcher.teardown();
+      }
+
+      callHook(vm, 'destroyed');
+    };
+  }
+  function callHook(vm, hook) {
+    var handlers = vm.$options[hook];
+
+    if (handlers) {
+      for (var i = 0; i < handlers.length; i++) {
+        handlers[i].call(vm);
+      }
+    }
+  }
+
   var has = {};
   var flushing = false;
   var queue = [];
@@ -339,6 +772,11 @@
 
     for (index = 0; index < queue.length; index++) {
       var watcher = queue[index];
+
+      if (watcher.before) {
+        watcher.before();
+      }
+
       has[watcher.id] = null;
       watcher.run();
     }
@@ -346,6 +784,7 @@
     index = queue.length = 0;
     has = {};
     flushing = waiting = false;
+    callHook(vm, 'updated');
   }
 
   var uid$1 = 0;
@@ -360,6 +799,10 @@
       this.deps = [];
       this.depIds = new Set();
       this.id = ++uid$1;
+
+      if (options) {
+        this.before = options.before;
+      }
 
       if (typeof exprOrFn === 'function') {
         this.getter = exprOrFn;
@@ -872,373 +1315,20 @@
     return renderFn;
   }
 
-  var VNode = function VNode(tag, data, key) {
-    var children = arguments.length > 3 && arguments[3] !== undefined ? arguments[3] : [];
-    var text = arguments.length > 4 ? arguments[4] : undefined;
-    var elm = arguments.length > 5 ? arguments[5] : undefined;
-    var context = arguments.length > 6 ? arguments[6] : undefined;
-    var componentOptions = arguments.length > 7 ? arguments[7] : undefined;
-
-    _classCallCheck(this, VNode);
-
-    this.tag = tag;
-    this.data = data;
-    this.key = key;
-    this.children = children;
-    this.text = text;
-    this.elm = elm;
-    this.context = context;
-    this.componentOptions = componentOptions;
-  };
-
-  function createComponent(Ctor, data, context, children, tag) {
-    if (!Ctor) return;
-    var baseCtor = context.$options._base; // 针对局部组件注册场景
-
-    if (_typeof(Ctor) === 'object') {
-      Ctor = baseCtor.extend(Ctor);
-    }
-
-    data = data || {};
-    var name = Ctor.options.name || tag;
-    var vnode = new VNode("vue-component-".concat(Ctor.cid).concat(name ? "-".concat(name) : ''), data, undefined, undefined, undefined, undefined, context, {
-      Ctor: Ctor,
-      tag: tag,
-      children: children
-    });
-    return vnode;
-  }
-  function createComponentInstanceForVnode(vnode, parent) {
-    var options = {
-      _isComponent: true,
-      _parentVnode: vnode,
-      parent: parent
-    };
-    return new vnode.componentOptions.Ctor(options);
-  }
-
-  function createPatchFunction(oldVnode, vnode) {
-    var vm = this;
-    return patch(oldVnode, vnode);
-
-    function patch(oldVnode, vnode) {
-      // let parent = vm.$el.parentNode;
-      // const oldElm = oldVnode;
-      // const parentElm = oldElm.parentNode;
-      // let el = createElm(vnode);
-      // parent.appendChild(el);
-      // if (isRealElement) {
-      //   parentElm.removeChild(oldElm);
-      // }
-      if (!oldVnode) {
-        createElm(vnode);
-      } else {
-        var isRealElement = oldVnode.nodeType; // 虚拟dom没有nodeType属性，真实dom才有
-
-        if (!isRealElement && sameVnode(oldVnode, vnode)) {
-          patchVnode(oldVnode, vnode);
-        } else {
-          if (isRealElement) {
-            oldVnode = emptyNodeAt(oldVnode);
-          }
-
-          var elm = oldVnode.elm;
-          var parent = elm.parentNode;
-          createElm(vnode, [], parent);
-          parent.insertBefore(vnode.elm, elm);
-          parent.removeChild(elm);
-        }
-      }
-
-      return vnode.elm;
-    }
-
-    function createElm(vnode, insertedVnodeQueue, parentElm, refElm) {
-      var tag = vnode.tag,
-          data = vnode.data,
-          key = vnode.key,
-          children = vnode.children,
-          text = vnode.text;
-
-      if (createComponent(vnode, [], parentElm)) {
-        return;
-      }
-
-      if (typeof tag === 'string') {
-        vnode.elm = document.createElement(tag);
-        children.forEach(function (child) {
-          try {
-            return vnode.elm.appendChild(createElm(child, [], vnode.elm));
-          } catch (e) {
-            console.log(e);
-          }
-        });
-        updateProperties(vnode);
-      } else {
-        vnode.elm = document.createTextNode(text);
-      }
-
-      return vnode.elm;
-    }
-
-    function createComponent(vnode, insertedVnodeQueue, parentElm, refElm) {
-      if (vnode.tag && vnode.tag.indexOf('vue-component') > -1) {
-        var child = createComponentInstanceForVnode(vnode, parentElm);
-        child.$mount();
-        parentElm.appendChild(child.$el);
-        return true;
-      }
-    }
-
-    function patchVnode(oldVnode, vnode) {
-      if (oldVnode === vnode) return;
-      var elm = vnode.elm = oldVnode.elm;
-      var oldCh = oldVnode.children;
-      var ch = vnode.children;
-
-      if (!vnode.text) {
-        // 判断是否为文本
-        if (oldCh && ch) {
-          // 是否有子节点
-          updateChildren(elm, oldCh, ch);
-        } else if (ch) {
-          if (oldCh.text) {
-            elm.textContent = '';
-          }
-
-          addVnodes(elm, null, ch, 0, ch.length - 1);
-        } else if (oldCh) {
-          removeVnodes(elm, oldCh, 0, oldCh.length - 1);
-        } else {
-          elm.textContent = '';
-        }
-
-        updateDOMProps(oldVnode, vnode);
-      } else {
-        if (oldCh) {
-          removeVnodes(elm, oldCh, 0, oldCh.length - 1);
-        }
-
-        elm.textContent = vnode.text;
-      }
-    }
-
-    function emptyNodeAt(elm) {
-      return new VNode(elm.tagName.toLowerCase(), {}, [], undefined, undefined, elm);
-    }
-
-    function sameVnode(oldVnode, vnode) {
-      return oldVnode.key === vnode.key && oldVnode.tag === vnode.tag;
-    }
-
-    function removeVnodes(parent, vnodes, startIdx, endIdx) {
-      for (var i = startIdx; i <= endIdx; i++) {
-        var _vnode = vnodes[i];
-        var elm = _vnode.elm;
-        parent.removeChild(elm);
-      }
-    }
-
-    function addVnodes(parent, before, vnodes, startIdx, endIdx) {
-      for (; startIdx <= endIdx; ++startIdx) {
-        var _vnode2 = vnodes[startIdx];
-
-        if (_vnode2) {
-          parent.insertBefore(createElm(_vnode2, [], parent), before);
-        }
-      }
-    }
-
-    function updateChildren(parentElm, oldCh, newCh) {
-      if (oldCh === newCh) return;
-      var oldStartIdx = 0,
-          oldEndIdx = oldCh.length - 1,
-          oldStartVnode = oldCh[0],
-          oldEndVnode = oldCh[oldEndIdx],
-          newStartIdx = 0,
-          newEndIdx = newCh.length - 1,
-          newStartVnode = newCh[0],
-          newEndVnode = newCh[newEndIdx],
-          oldKeyToIdx,
-          idxInold;
-
-      while (oldStartIdx <= oldEndIdx && newStartIdx <= newEndIdx) {
-        if (oldStartVnode == null) {
-          oldStartVnode = oldCh[++oldStartIdx];
-        } else if (oldEndVnode == null) {
-          oldEndVnode = oldCh[--oldEndIdx];
-        } else if (newStartVnode == null) {
-          newStartVnode = newCh[++newStartIdx];
-        } else if (newEndVnode == null) {
-          newEndVnode = newCh[--newEndIdx];
-        } else if (sameVnode(oldStartVnode, newStartVnode)) {
-          patchVnode(oldStartVnode, newStartVnode);
-          oldStartVnode = oldCh[++oldStartIdx];
-          newStartVnode = newCh[++newStartIdx];
-        } else if (sameVnode(oldEndVnode, newEndVnode)) {
-          patchVnode(oldEndVnode, newEndVnode);
-          oldEndVnode = oldCh[--oldEndIdx];
-          newEndVnode = newCh[--newEndIdx];
-        } else if (sameVnode(oldStartVnode, newEndVnode)) {
-          patchVnode(oldStartVnode, newEndVnode);
-          parentElm.insertBefore(oldStartVnode.elm, oldEndVnode.elm.nextSibling);
-          oldStartVnode = oldCh[++oldStartIdx];
-          newEndVnode = newCh[--newEndIdx];
-        } else if (sameVnode(oldEndVnode, newStartVnode)) {
-          patchVnode(oldEndVnode, newStartVnode);
-          parentElm.insertBefore(oldEndVnode.elm, oldStartVnode.elm);
-          oldEndVnode = oldCh[--oldEndIdx];
-          newStartVnode = newCh[++newStartIdx];
-        } else {
-          if (oldKeyToIdx === undefined) {
-            oldKeyToIdx = createKeyToOldIdx(oldCh, oldStartIdx, oldEndIdx);
-          }
-
-          idxInold = oldKeyToIdx[newStartVnode.key];
-
-          if (idxInold === undefined) {
-            parentElm.insertBefore(createElm(newStartVnode, [], parentElm), oldStartVnode.elm);
-          } else {
-            var moveVnode = oldCh[idxInold];
-
-            if (!sameVnode(moveVnode, newStartVnode)) {
-              parentElm.insertBefore(createElm(newStartVnode, [], parentElm), oldStartVnode.elm);
-            } else {
-              patchVnode(moveVnode, newStartVnode);
-              parentElm.insertBefore(moveVnode.elm, oldStartVnode.elm);
-              oldCh[idxInold] = null;
-            }
-          }
-
-          newStartVnode = newCh[++newStartIdx];
-        }
-      }
-
-      if (oldStartIdx <= oldEndIdx || newStartIdx <= newEndIdx) {
-        if (oldStartIdx > oldEndIdx) {
-          // 插入剩余新增的子节点
-          var before = newCh[newEndIdx + 1] ? newCh[newEndIdx + 1].elm : null;
-          addVnodes(parentElm, before, newCh, newStartIdx, newEndIdx);
-        } else {
-          // 删除废弃的子节点
-          removeVnodes(parentElm, oldCh, oldStartIdx, oldEndIdx);
-        }
-      }
-    }
-
-    function createKeyToOldIdx(children, startIdx, endIdx) {
-      var map = {};
-
-      for (var i = startIdx; i <= endIdx; i++) {
-        var key = children[i].key;
-
-        if (key) {
-          map[key] = i;
-        }
-      }
-
-      return map;
-    }
-
-    function updateProperties(vnode) {
-      var props = vnode.data;
-      var elm = vnode.elm;
-
-      if (props) {
-        if (props.attrs) {
-          for (var attr in props.attrs) {
-            if (attr === 'style') {
-              for (var styleName in props.attrs.style) {
-                elm.style[styleName] = props.attrs.style[styleName];
-              }
-            } else if (attr === 'class') {
-              elm.className = props.attrs[attr];
-            } else {
-              elm.setAttribute(attr, props.attrs[attr]);
-            }
-          }
-        }
-
-        if (props.on) {
-          for (var event in props.on) {
-            elm.addEventListener(event, props.on[event].bind(vm));
-          }
-        }
-
-        if (props.domProps) {
-          for (var prop in props.domProps) {
-            // elm.prop=props.domProps[prop]
-            elm.setAttribute(prop, props.domProps[prop]);
-          }
-        }
-      }
-    }
-
-    function updateDOMProps(oldVnode, vnode) {
-      if (!oldVnode.data.domProps && !vnode.data.domProps) return;
-      var elm = vnode.elm;
-      var oldProps = oldVnode.data.domProps || {};
-      var props = vnode.data.domProps || {}; // 清空不在新 VNode 里在老 VNode 的 domProps
-
-      for (var key in oldProps) {
-        if (!props[key]) {
-          elm[key] = '';
-        }
-      }
-
-      for (var _key in props) {
-        var cur = props[_key];
-
-        if (_key === 'value') {
-          elm[_key] = cur;
-        } else {
-          elm[_key] = cur;
-        }
-      }
-    }
-  }
-
-  function mountComponent(vm, el) {
-    // const option=vm.$options;
-    vm.$el = el;
-
-    var updateComponent = function updateComponent() {
-      // _render 创建虚拟dom
-      // _update 解析虚拟dom并创建真实dom
-      var vnode = vm._render();
-
-      vm._update(vnode);
-    };
-
-    new Watcher(vm, updateComponent, function () {}, true);
-  }
-  function lifecycleMixin(Vue) {
-    Vue.prototype._update = function (vnode) {
-      var vm = this;
-      var prevVnode = vm._vnode;
-      vm._vnode = vnode;
-
-      if (!prevVnode) {
-        vm.$el = vm.__patch__(vm.$el, vnode);
-      } else {
-        vm.$el = vm.__patch__(prevVnode, vnode);
-      }
-    };
-  }
-
   function initMixin(Vue) {
     Vue.prototype._init = function (options) {
       var vm = this;
-      vm.$options = options;
 
       if (options && options._isComponent) {
         initInternalComponent(vm, options);
       } else {
-        vm.$options = Object.assign({}, vm.constructor.options, options || {});
-      } // initRender(vm);
+        vm.$options = mergeOptions(vm.constructor.options, options || {});
+      }
 
+      callHook(vm, 'beforeCreate'); // initRender(vm);
 
       initState(vm);
+      callHook(vm, 'created');
 
       if (vm.$options.el) {
         vm.$mount(vm.$options.el);
@@ -1266,7 +1356,7 @@
     };
   }
   function initInternalComponent(vm, options) {
-    var opts = vm.$options = Object.assign({}, vm.constructor.options, options); // const parentVnode = options._parentVnode
+    var opts = vm.$options = mergeOptions(options || {}, vm.constructor.options); // const parentVnode = options._parentVnode
     // opts.parent = options.parent
     // opts._parentVnode = parentVnode
     // if (options.render) {
@@ -1347,8 +1437,6 @@
   stateMixin(Vue);
   renderMixin(Vue);
   lifecycleMixin(Vue);
-
-  var ASSET_TYPES = ['component'];
 
   function initExtend(Vue) {
     Vue.cid = 0;

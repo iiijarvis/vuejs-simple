@@ -13,6 +13,10 @@ class Watcher {
     this.depIds = new Set();
     this.id = ++uid;
 
+    if (options) {
+      this.before = options.before;
+    }
+
     if (typeof exprOrFn === 'function') {
       this.getter = exprOrFn
     } else {
